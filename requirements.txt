@@ -1,0 +1,9 @@
+# FlowPilot AI runtime dependencies
+
+# Core workflow dependencies
+sqlite3 is part of the Python standard library and is not listed here.
+
+# Optional real LLM provider (Stage 10.1)
+# The application still works without this package; it only enables the
+# real OpenAIProvider path when OPENAI_API_KEY is configured.
+openai>=1.0.0

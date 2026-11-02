@@ -50,3 +50,11 @@ Decisions will be recorded here as repository hygiene and secret-check implement
 - Export an inactive n8n example that uses template mode and calls only the local generation API. It returns a Pending result to its caller; it does not approve or transmit customer responses.
 - Leave credentials out of the workflow export entirely. The webhook is for local demonstration only and must receive deployment-appropriate authentication/network controls before exposure.
 - Mark n8n import and runtime behavior unverified because no n8n instance is installed in this environment.
+
+## Phase 8
+
+- Keep lint scope to Ruff's correctness-focused `E4`, `E7`, `E9`, and `F` rules to avoid a broad style rewrite of the legacy project.
+- Enforce a 65% coverage floor: the measured current application coverage is 76%, and the baseline comparison shows shared-module coverage increasing from 72% to 77%.
+- Preserve a clean install command in `requirements-dev.txt` so CI and developers use the same declared dependency set. Fix malformed requirement syntax rather than bypassing dependency installation.
+- Type-only imports need postponed annotation evaluation when the runtime package may be unavailable; verify the fallback path in a clean environment before accepting that pattern.
+- CI is configured but its hosted run remains unverified until the repository is connected to a remote.

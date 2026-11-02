@@ -1,0 +1,38 @@
+name: FlowPilot CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
+      - name: Install dependencies
+        run: python -m pip install -r requirements-dev.txt
+      - name: Lint
+        run: ruff check .
+      - name: Unit tests with branch coverage
+        run: coverage run -m unittest discover -v
+      - name: Enforce application coverage
+        run: coverage report --fail-under=65
+      - name: Classification CLI
+        run: python flowpilot.py --classify-tests
+      - name: Secret scan
+        run: python scripts/check_secrets.py

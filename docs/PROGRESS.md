@@ -136,3 +136,18 @@
 - No OpenAI API request was made.
 
 **Next:** Phase 8, add lint/coverage/CI and security regression checks without weakening existing tests.
+
+## Phase 8 — Lint, coverage, CI, and security checks
+
+**Status: Complete**
+
+- Added Ruff and Coverage development requirements, Ruff/Coverage configuration, `.coverage` ignores, and a GitHub Actions workflow for Python 3.11 and 3.13.
+- Added CI steps for lint, branch coverage, unit tests, classification checks, and repository secret scanning. The coverage gate is 65%.
+- The first clean-install attempt exposed a malformed `requirements.txt` comment; corrected it. The clean install then exposed a runtime annotation name error after introducing type-only imports; adding postponed annotation evaluation fixed it.
+- Removed unused imports/assignments and an unreachable duplicate fallback block. These changes do not alter response or approval behavior.
+- Clean Python 3.13 virtual environment installed `requirements-dev.txt` successfully. In that environment: Ruff passed; `coverage run -m unittest -v` passed **211 tests** (`Ran 211 tests in 12.729s`); `coverage report --fail-under=65` passed at **76%**; classification passed **25/25**; secret scan passed.
+- Measured baseline commit `5968219` with the original 184 tests: shared application modules had **72%** coverage. The same shared modules now have **77%** coverage; all current application modules together have **76%**.
+- Pylance workspace diagnostics now show no type/error-level diagnostics. Remaining editor diagnostics are unused-symbol warnings in legacy helpers/tests.
+- No OpenAI API request was made. GitHub-hosted CI itself has not run because no remote is configured.
+
+**Next:** Phase 9, write the user-facing project, architecture, testing, and security documentation; then perform the final audit.

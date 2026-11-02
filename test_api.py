@@ -54,6 +54,15 @@ class TestHTTPAPI(unittest.TestCase):
         self.assertIsNone(result["approval"])
         self.assertIn(response.json()["response_id"], api.pending_responses)
 
+    def test_workflow_rejects_empty_and_overlong_messages(self):
+        for message in ("", "x" * 4001):
+            with self.subTest(message_length=len(message)):
+                response = self.client.post(
+                    "/workflow", json={"message": message}
+                )
+                self.assertEqual(response.status_code, 422)
+        self.assertFalse(api.pending_responses)
+
     def test_review_endpoint_requires_configured_key(self):
         created = self.client.post(
             "/workflow", json={"message": "Where is order ORD1042?"}
@@ -115,6 +124,28 @@ class TestHTTPAPI(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["result"]["approval_status"], "Rejected")
         self.assertFalse(response.json()["result"]["can_proceed"])
+
+    def test_approval_does_not_change_order_refund_or_payment_data(self):
+        before = (
+            database.get_order("ORD2050"),
+            database.get_refund_status("ORD2050"),
+            database.get_payment_status("ORD2050"),
+        )
+        created = self.client.post(
+            "/workflow", json={"message": "I want a refund for ORD2050."}
+        ).json()
+        response = self.client.post(
+            f"/responses/{created['response_id']}/review",
+            json={"decision": "Approved"},
+            headers={"X-Review-API-Key": "test-review-key"},
+        )
+        self.assertEqual(response.status_code, 200)
+        after = (
+            database.get_order("ORD2050"),
+            database.get_refund_status("ORD2050"),
+            database.get_payment_status("ORD2050"),
+        )
+        self.assertEqual(after, before)
 
     def test_invalid_decision_does_not_consume_pending_response(self):
         created = self.client.post(

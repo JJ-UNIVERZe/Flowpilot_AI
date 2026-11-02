@@ -436,7 +436,6 @@ def _delivery_facts_consistent(generated: str, details: dict) -> bool:
     if not generated:
         return False
 
-    text = generated.lower()
     order_status = str(details.get("order_status", "")).strip().lower()
     delivery_date = details.get("delivery_date")
 
@@ -468,7 +467,6 @@ def _refund_facts_consistent(generated: str, details: dict) -> bool:
     if not generated:
         return False
 
-    text = generated.lower()
     refund_status = str(details.get("refund_status", "")).strip().lower()
     refund_amount = details.get("refund_amount")
 

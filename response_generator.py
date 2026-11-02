@@ -46,7 +46,7 @@ invalid output. This ensures zero-downtime operation and guaranteed compatibilit
 
 from __future__ import annotations
 
-from typing import Optional, Dict, Any
+from typing import Optional, Dict
 
 # ---------------------------------------------------------------------------
 # 1. SHARED TEXT HELPERS

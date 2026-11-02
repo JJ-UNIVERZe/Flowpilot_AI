@@ -22,11 +22,14 @@ Run it:
     python flowpilot.py --classify-tests       # classification test table
 """
 
+from __future__ import annotations
+
 import argparse
 import json
 import re
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import approval
 import database
@@ -40,18 +43,17 @@ from database import (
 )
 from response_generator import generate_response
 
+if TYPE_CHECKING:
+    from llm_response_generator import LLMProvider
+
 try:
     from llm_response_generator import (
-        LLMProvider,
         get_openai_provider,
-        validate_facts_against_result,
     )
     _LLM_MODULE_AVAILABLE = True
 except ImportError:
     _LLM_MODULE_AVAILABLE = False
-    LLMProvider = None  # type: ignore
     get_openai_provider = None  # type: ignore
-    validate_facts_against_result = None  # type: ignore
 
 # ---------------------------------------------------------------------------
 # NODE 1 — Input
@@ -586,18 +588,6 @@ def run_workflow_with_provider_and_approval(
     result["approval_status"] = approval_record["approval_status"]
     result["can_proceed"] = approval.can_proceed(approval_record["approval_status"])
     return result
-
-    try:
-        llm_text = _generate_llm_text(result, provider)
-    except Exception:
-        llm_text = None
-    if llm_text:
-        result["customer_response"] = llm_text
-    else:
-        result["customer_response"] = generate_response(result)
-
-    return result
-
 
 def run_workflow_with_llm_and_approval(
     message: str,

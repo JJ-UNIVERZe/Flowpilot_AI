@@ -24,7 +24,6 @@ expected data.
 import json
 import re
 import sqlite3
-import sys
 import tempfile
 import unittest
 from llm_response_generator import MockLLM
@@ -2009,7 +2008,6 @@ class TestLLMFallbackBehaviour(unittest.TestCase):
             importlib.reload(flowpilot)
 
             from llm_response_generator import generate_response
-            from response_generator import generate_response as template_generate
 
             result = {
                 "category": "Unknown Request",
@@ -2043,8 +2041,6 @@ class TestWorkflowWithLLM(TempDatabaseTestCase):
         self.assertEqual(result["customer_response"], "Your order is on its way.")
 
     def test_llm_path_uses_template_fallback_when_provider_unavailable(self):
-        from llm_response_generator import OpenAIProvider
-
         with mock.patch.dict(
             "os.environ", {
                 "OPENAI_API_KEY": "test-key",
@@ -2063,8 +2059,6 @@ class TestWorkflowWithLLM(TempDatabaseTestCase):
         self.assertEqual(result["customer_response"], generate_response(result))
 
     def test_llm_path_uses_template_fallback_when_validation_fails(self):
-        from llm_response_generator import OpenAIProvider
-
         with mock.patch.dict(
             "os.environ", {
                 "OPENAI_API_KEY": "test-key",
@@ -2106,8 +2100,6 @@ class TestWorkflowWithLLM(TempDatabaseTestCase):
         self.assertEqual(result["customer_response"], generate_response(result))
 
     def test_llm_path_does_not_duplicate_database_lookups(self):
-        from llm_response_generator import OpenAIProvider
-
         with mock.patch.dict(
             "os.environ", {
                 "OPENAI_API_KEY": "test-key",
@@ -2132,7 +2124,7 @@ class TestWorkflowWithLLM(TempDatabaseTestCase):
             ), mock.patch(
                 "flowpilot.get_payment_status", side_effect=database.get_payment_status
             ):
-                result = flowpilot.run_workflow_with_llm(
+                flowpilot.run_workflow_with_llm(
                     "My order ORD1042 has not arrived.")
 
         self.assertEqual(lookup_calls, ["ORD1042"])
@@ -2152,8 +2144,6 @@ class TestWorkflowWithLLM(TempDatabaseTestCase):
         self.assertTrue(result["can_proceed"])
 
     def test_approved_rejected_and_pending_states_remain_correct(self):
-        from llm_response_generator import MockLLM
-
         approved, _printed_a = self.run_with_llm_answers(
             "My order ORD1042 has not arrived.", ["a"])
         rejected, _printed_r = self.run_with_llm_answers(

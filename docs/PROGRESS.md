@@ -63,3 +63,16 @@
 - No OpenAI API request was made. OpenAI CLI verification used the missing-key path, and provider workflows were mocked.
 
 **Next:** Phase 3, add manual-only live OpenAI verification guidance and document that live service behavior remains unverified.
+
+## Phase 3 — Manual OpenAI verification
+
+**Status: Complete; live service verification remains UNVERIFIED**
+
+- Added `scripts/verify_openai_live.py`. It requires an explicit `--confirm-live-call`, refuses to proceed without `OPENAI_API_KEY`, sends only a fixed non-customer prompt, and does not print the credential or response body.
+- Added `docs/openai-verification.md` with the manual procedure, billable-request warning, and limitations of the check.
+- Parsed the new script for syntax without executing it. The live verifier was **not run** and no real OpenAI request was made.
+- `python -m unittest -v` — **191 tests passed** (`Ran 191 tests in 6.418s`, exit 0).
+- `python flowpilot.py --classify-tests` — **25/25 passed**, exit 0.
+- `python scripts/check_secrets.py` — passed; no likely secret patterns found.
+
+**Next:** Phase 4, add a thin FastAPI interface and isolated tests if dependencies and current application boundaries support it.

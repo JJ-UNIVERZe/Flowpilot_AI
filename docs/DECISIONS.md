@@ -19,3 +19,9 @@ Decisions will be recorded here as repository hygiene and secret-check implement
 - Use a small JSON schema version (`1.0`) in both the workflow result and export so consumers can identify the output shape.
 - Keep provider tests offline. OpenAI mode without a key exits with a clear error; no API call is made.
 - Add focused CLI and workflow regression cases without replacing existing tests. The full suite now has 191 passing tests, up from the 184-test baseline.
+
+## Phase 3
+
+- Put live-provider verification behind a separate manual script instead of adding it to unit tests or application startup.
+- Require an explicit `--confirm-live-call` flag and use a fixed prompt containing no customer or order details. This reduces accidental requests and prevents test data from leaving the machine.
+- Keep live verification marked UNVERIFIED until the user supplies a key and chooses to run it. Do not execute the verifier during development.

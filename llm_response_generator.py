@@ -577,10 +577,12 @@ def _parse_date(value: str, year: Optional[int] = None) -> Optional[date]:
     )
     for date_format in formats:
         try:
-            parsed = datetime.strptime(value, date_format).date()
-            if "%Y" not in date_format and year is not None:
-                return date(year, parsed.month, parsed.day)
-            return parsed
+            if "%Y" not in date_format:
+                parse_year = year if year is not None else 2000
+                return datetime.strptime(
+                    f"{value} {parse_year}", f"{date_format} %Y"
+                ).date()
+            return datetime.strptime(value, date_format).date()
         except ValueError:
             continue
     return None

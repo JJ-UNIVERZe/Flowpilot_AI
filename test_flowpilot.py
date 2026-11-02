@@ -1385,6 +1385,18 @@ class TestOpenAIProviderConfiguration(unittest.TestCase):
             provider = OpenAIProvider()
             self.assertEqual(provider._model, "gpt-4o-mini")
 
+    def test_provider_defaults_when_model_environment_variable_is_empty(self):
+        from llm_response_generator import OpenAIProvider
+
+        with mock.patch.dict(
+            "os.environ", {
+                "OPENAI_API_KEY": "test-key",
+                "OPENAI_MODEL": "",
+            }, clear=True
+        ), mock.patch("openai.OpenAI"):
+            provider = OpenAIProvider()
+        self.assertEqual(provider._model, "gpt-4o-mini")
+
     def test_provider_uses_explicit_model_over_env(self):
         from llm_response_generator import OpenAIProvider
 

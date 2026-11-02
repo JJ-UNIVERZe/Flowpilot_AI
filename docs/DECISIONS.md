@@ -58,3 +58,9 @@ Decisions will be recorded here as repository hygiene and secret-check implement
 - Preserve a clean install command in `requirements-dev.txt` so CI and developers use the same declared dependency set. Fix malformed requirement syntax rather than bypassing dependency installation.
 - Type-only imports need postponed annotation evaluation when the runtime package may be unavailable; verify the fallback path in a clean environment before accepting that pattern.
 - CI is configured but its hosted run remains unverified until the repository is connected to a remote.
+
+## Phase 9
+
+- Document the actual behavior and known limitations rather than promising production readiness. In particular, `.env` is not loaded automatically, API pending records are process-local, and OpenAI/n8n/hosted-CI checks remain unverified.
+- Leave `OPENAI_MODEL` blank in the example and make an empty setting fall back to the provider's documented default model. This keeps the example credential-free and avoids passing an empty model to the SDK when a file-based environment loader is used externally.
+- Final coverage comparison uses the unchanged shared core modules to avoid making the expanded module set look like a direct one-to-one baseline.

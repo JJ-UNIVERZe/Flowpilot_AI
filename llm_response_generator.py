@@ -226,7 +226,7 @@ class OpenAIProvider(LLMProvider):
     """
 
     def __init__(self, model: Optional[str] = None, timeout_seconds: float = 30.0):
-        self._model = model or os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+        self._model = model or os.getenv("OPENAI_MODEL") or "gpt-4o-mini"
         self._timeout_seconds = timeout_seconds
         api_key = os.getenv("OPENAI_API_KEY", "")
         self._client = None

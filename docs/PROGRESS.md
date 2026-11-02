@@ -151,3 +151,22 @@
 - No OpenAI API request was made. GitHub-hosted CI itself has not run because no remote is configured.
 
 **Next:** Phase 9, write the user-facing project, architecture, testing, and security documentation; then perform the final audit.
+
+## Phase 9 — Documentation and final audit
+
+**Status: Complete for local implementation; external verifications remain pending**
+
+- Added the project README plus architecture, testing, and security documentation. The docs describe CLI/API/UI usage, provider data flow, human approval, secret handling, audit limits, and deployment boundaries.
+- Simplified `.env.example` to blank credentials and optional model configuration; clarified that the application reads process environment variables and does not load `.env` itself.
+- Hardened OpenAI model configuration so an empty `OPENAI_MODEL` uses the documented `gpt-4o-mini` default. Added an offline regression test using a mocked SDK constructor.
+- Final `python -m unittest -v` — **212 tests passed** (`Ran 212 tests in 11.370s`, exit 0). A fresh Python 3.13 environment also passed all **212 tests** (`Ran 212 tests in 7.437s`).
+- Final classification CLI — **25/25 passed**.
+- Final Ruff checks — passed. Branch coverage — **76%**; the configured 65% threshold passed.
+- Final secret scan — passed; `.env` is ignored and not tracked, while `.env.example` is tracked.
+- Import-time dependency graph has no cycles; the lazy template fallback is covered by the existing import/reload regression test. The LLM workflow performs one lookup, covered by its no-duplicate-lookup regression test.
+- No OpenAI API call was made.
+- Hosted GitHub Actions, browser-to-server networking, n8n import/runtime, and live OpenAI verification remain unverified. Live OpenAI requires user-provided credentials and is explicitly not part of automated execution.
+
+### Final project status
+
+Phases 0–9 have been implemented and validated locally. This is a functioning local demo, not a production-ready customer-support service. The unresolved external/infrastructure checks and security limitations are documented in `docs/SECURITY.md` and the final response.

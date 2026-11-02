@@ -68,6 +68,20 @@ APPROVAL_TABLE_SQL = """
         reviewed_at TEXT NOT NULL
     )
 """
+APPROVAL_NO_UPDATE_TRIGGER_SQL = """
+    CREATE TRIGGER IF NOT EXISTS approval_logs_no_update
+    BEFORE UPDATE ON approval_logs
+    BEGIN
+        SELECT RAISE(ABORT, 'approval audit records are immutable');
+    END
+"""
+APPROVAL_NO_DELETE_TRIGGER_SQL = """
+    CREATE TRIGGER IF NOT EXISTS approval_logs_no_delete
+    BEFORE DELETE ON approval_logs
+    BEGIN
+        SELECT RAISE(ABORT, 'approval audit records are immutable');
+    END
+"""
 
 # New Stage 4 columns and the SQLite type used when adding them to an
 # existing database. The defaults keep old rows readable until they are
@@ -92,6 +106,13 @@ def _migrate_schema(connection: sqlite3.Connection) -> None:
             connection.execute(
                 f"ALTER TABLE orders ADD COLUMN {column_name} {column_definition}"
             )
+
+
+def _ensure_approval_audit_integrity(connection: sqlite3.Connection) -> None:
+    """Create the audit table and prevent ordinary updates or deletes."""
+    connection.execute(APPROVAL_TABLE_SQL)
+    connection.execute(APPROVAL_NO_UPDATE_TRIGGER_SQL)
+    connection.execute(APPROVAL_NO_DELETE_TRIGGER_SQL)
 
 
 def create_database() -> None:
@@ -122,7 +143,7 @@ def create_database() -> None:
 
             # Stage 6 (approval): add the audit table to new and existing
             # databases. Existing approval rows are left untouched.
-            connection.execute(APPROVAL_TABLE_SQL)
+            _ensure_approval_audit_integrity(connection)
 
             # Fresh databases get the full sample rows here. Existing rows are
             # left untouched by INSERT OR IGNORE.
@@ -250,7 +271,7 @@ def _ensure_approval_table() -> None:
     ensure_database_ready()   # makes sure orders.db itself exists first
     try:
         with closing(sqlite3.connect(DATABASE_PATH)) as connection, connection:
-            connection.execute(APPROVAL_TABLE_SQL)
+            _ensure_approval_audit_integrity(connection)
     except sqlite3.Error as error:
         raise DatabaseError(DATABASE_UNAVAILABLE_TEXT) from error
 

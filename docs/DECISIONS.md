@@ -32,3 +32,9 @@ Decisions will be recorded here as repository hygiene and secret-check implement
 - Bind the API to loopback for local use. Require a separately configured `REVIEW_API_KEY` before allowing any review decision; a missing server-side key fails closed.
 - Keep unresolved API responses in memory and make that limitation explicit rather than introducing a new persistence schema. Audit only explicit decisions, using the existing approval table.
 - Use a temporary database and in-process TestClient for API coverage. Tests verify Pending default, auth failure, approval/rejection audit, invalid-decision handling, and offline fallback.
+
+## Phase 5
+
+- Enforce audit immutability with SQLite triggers so update/delete protection does not depend only on callers following a convention.
+- Keep order/refund/payment query functions read-only for existing records. Initialization remains responsible for creating/migrating local fixture storage when absent.
+- These controls protect against ordinary application operations, not a privileged operator who can alter the database schema or remove triggers.

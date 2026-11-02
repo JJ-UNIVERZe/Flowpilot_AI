@@ -92,3 +92,18 @@
 - No OpenAI API request was made.
 
 **Next:** Phase 5, strengthen database and audit integrity and cover failure/replay cases.
+
+## Phase 5 — Database and audit integrity
+
+**Status: Complete**
+
+- Added SQLite `BEFORE UPDATE` and `BEFORE DELETE` triggers for `approval_logs`, enforcing append-only decisions at the database layer for normal application operations.
+- Added regressions proving the audit row remains unchanged after attempted update/delete and old databases still receive the required audit structures.
+- Added a row snapshot test proving order, refund, and payment lookups do not write existing facts.
+- Existing audit records and request outcomes remain persisted in SQLite; pending API workflows remain process-local until a decision is recorded.
+- `python -m unittest -v` — **201 tests passed** (`Ran 201 tests in 7.178s`, exit 0).
+- `python flowpilot.py --classify-tests` — **25/25 passed**, exit 0.
+- `python scripts/check_secrets.py` — passed; no likely secret patterns found.
+- No OpenAI API request was made.
+
+**Next:** Phase 6, add a Streamlit interface that uses the HTTP API rather than duplicating workflow or approval logic.

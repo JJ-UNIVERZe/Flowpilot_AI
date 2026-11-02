@@ -365,6 +365,23 @@ class TestDatabaseLookup(TempDatabaseTestCase):
             "Payment Pending",
         )
 
+    def test_order_refund_and_payment_lookups_do_not_write_order_rows(self):
+        order_id = "ORD2050"
+        with closing(sqlite3.connect(self.test_db_path)) as connection:
+            before = connection.execute(
+                "SELECT * FROM orders WHERE order_id = ?", (order_id,)
+            ).fetchone()
+
+        self.assertIsNotNone(database.get_order(order_id))
+        self.assertIsNotNone(database.get_refund_status(order_id))
+        self.assertIsNotNone(database.get_payment_status(order_id))
+
+        with closing(sqlite3.connect(self.test_db_path)) as connection:
+            after = connection.execute(
+                "SELECT * FROM orders WHERE order_id = ?", (order_id,)
+            ).fetchone()
+        self.assertEqual(after, before)
+
     def test_workflow_does_not_modify_the_real_database(self):
         """The suite's temporary database must keep the real file untouched."""
         before = REAL_DATABASE_PATH.read_bytes() if REAL_DATABASE_PATH.exists() else None
@@ -918,6 +935,28 @@ class TestApprovalRecording(TempDatabaseTestCase):
             approval.record_approval("Reply", PENDING)
 
         self.assertEqual(self.approval_row_count(), 0)
+
+    def test_audit_rows_cannot_be_updated_or_deleted(self):
+        """SQLite enforces the append-only audit policy, not only Python callers."""
+        record = approval.record_approval("Reply", APPROVED)
+        with closing(sqlite3.connect(self.test_db_path)) as connection:
+            with self.assertRaises(sqlite3.IntegrityError):
+                connection.execute(
+                    "UPDATE approval_logs SET approval_status = ? "
+                    "WHERE approval_id = ?",
+                    (REJECTED, record["approval_id"]),
+                )
+            with self.assertRaises(sqlite3.IntegrityError):
+                connection.execute(
+                    "DELETE FROM approval_logs WHERE approval_id = ?",
+                    (record["approval_id"],),
+                )
+            row = connection.execute(
+                "SELECT approval_status, generated_response FROM approval_logs "
+                "WHERE approval_id = ?",
+                (record["approval_id"],),
+            ).fetchone()
+        self.assertEqual(row, (APPROVED, "Reply"))
 
     def test_message_text_is_stored_safely(self):
         """Quoted SQL in a message is stored as text, not executed."""

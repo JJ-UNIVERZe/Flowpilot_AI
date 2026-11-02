@@ -107,3 +107,17 @@
 - No OpenAI API request was made.
 
 **Next:** Phase 6, add a Streamlit interface that uses the HTTP API rather than duplicating workflow or approval logic.
+
+## Phase 6 — Streamlit client
+
+**Status: Complete**
+
+- Added `ui.py`, a Streamlit interface that sends generation and review requests only through the FastAPI endpoints.
+- The UI displays generated responses as not yet approved, requires the reviewer key before a decision can be sent, and exposes separate Approve/Reject actions.
+- OpenAI mode is disabled until the reviewer explicitly confirms that the request may be billable.
+- Added four mocked HTTP-client tests and an AppTest rendering/consent test. `python -m unittest -v` — **206 tests passed** (`Ran 206 tests in 7.584s`, exit 0).
+- `python flowpilot.py --classify-tests` — **25/25 passed**, exit 0.
+- `python scripts/check_secrets.py` — passed; no likely secret patterns found.
+- No OpenAI API request was made. No browser-based end-to-end session was run; UI behavior is covered in-process.
+
+**Next:** Phase 7, add a credential-free n8n workflow export that calls the API without bypassing human approval.

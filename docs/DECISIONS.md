@@ -38,3 +38,9 @@ Decisions will be recorded here as repository hygiene and secret-check implement
 - Enforce audit immutability with SQLite triggers so update/delete protection does not depend only on callers following a convention.
 - Keep order/refund/payment query functions read-only for existing records. Initialization remains responsible for creating/migrating local fixture storage when absent.
 - These controls protect against ordinary application operations, not a privileged operator who can alter the database schema or remove triggers.
+
+## Phase 6
+
+- Implement the UI as an HTTP client instead of importing the workflow or database modules. This keeps one source of truth for classification, lookup, fallback, and audit behavior.
+- Do not embed reviewer credentials or API keys. Reviewers enter the review key into a password-style input, and the UI forwards it only in the review header.
+- Require a separate checkbox before OpenAI mode can make a potentially billable request. Keep the default mode local/template-based.

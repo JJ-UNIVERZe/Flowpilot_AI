@@ -121,3 +121,18 @@
 - No OpenAI API request was made. No browser-based end-to-end session was run; UI behavior is covered in-process.
 
 **Next:** Phase 7, add a credential-free n8n workflow export that calls the API without bypassing human approval.
+
+## Phase 7 — n8n integration
+
+**Status: Complete; n8n runtime import remains UNVERIFIED**
+
+- Added an inactive n8n workflow export with a webhook, a single template-mode API request, and a response node.
+- The export contains no credentials, and it does not call approval or any refund/payment/order mutation endpoint.
+- Added static tests for JSON validity, inactive status, credential absence, API routing, and the Pending-only path.
+- Confirmed all n8n graph connection references point to exported nodes. n8n is not installed here, so import/runtime behavior was not tested.
+- `python -m unittest -v` — **209 tests passed** (`Ran 209 tests in 7.332s`, exit 0).
+- `python flowpilot.py --classify-tests` — **25/25 passed**, exit 0.
+- `python scripts/check_secrets.py` — passed; no likely secret patterns found.
+- No OpenAI API request was made.
+
+**Next:** Phase 8, add lint/coverage/CI and security regression checks without weakening existing tests.

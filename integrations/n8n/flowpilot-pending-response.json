@@ -1,0 +1,89 @@
+{
+  "name": "FlowPilot AI - Create Pending Response",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "flowpilot-generate",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        240,
+        300
+      ],
+      "id": "30c8af79-8113-4fdb-90f4-9026071a312f",
+      "name": "Receive support request",
+      "webhookId": "c0bbda48-19bd-48e9-bbc2-3af75572b79d"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://127.0.0.1:8000/workflow",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { message: $json.body.message, mode: 'template' } }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        480,
+        300
+      ],
+      "id": "f40dc0c8-6eba-4962-a9f7-f47ef7a01d03",
+      "name": "Create pending FlowPilot response"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        720,
+        300
+      ],
+      "id": "1216ab70-d0ab-4955-83ab-395c9872b438",
+      "name": "Return pending result"
+    }
+  ],
+  "connections": {
+    "Receive support request": {
+      "main": [
+        [
+          {
+            "node": "Create pending FlowPilot response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create pending FlowPilot response": {
+      "main": [
+        [
+          {
+            "node": "Return pending result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "7ef7cbba-5875-4e50-8b05-40d1a42b1058",
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "pinData": {},
+  "tags": []
+}

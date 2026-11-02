@@ -44,3 +44,9 @@ Decisions will be recorded here as repository hygiene and secret-check implement
 - Implement the UI as an HTTP client instead of importing the workflow or database modules. This keeps one source of truth for classification, lookup, fallback, and audit behavior.
 - Do not embed reviewer credentials or API keys. Reviewers enter the review key into a password-style input, and the UI forwards it only in the review header.
 - Require a separate checkbox before OpenAI mode can make a potentially billable request. Keep the default mode local/template-based.
+
+## Phase 7
+
+- Export an inactive n8n example that uses template mode and calls only the local generation API. It returns a Pending result to its caller; it does not approve or transmit customer responses.
+- Leave credentials out of the workflow export entirely. The webhook is for local demonstration only and must receive deployment-appropriate authentication/network controls before exposure.
+- Mark n8n import and runtime behavior unverified because no n8n instance is installed in this environment.

@@ -25,3 +25,10 @@ Decisions will be recorded here as repository hygiene and secret-check implement
 - Put live-provider verification behind a separate manual script instead of adding it to unit tests or application startup.
 - Require an explicit `--confirm-live-call` flag and use a fixed prompt containing no customer or order details. This reduces accidental requests and prevents test data from leaving the machine.
 - Keep live verification marked UNVERIFIED until the user supplies a key and chooses to run it. Do not execute the verifier during development.
+
+## Phase 4
+
+- Keep the HTTP layer thin: delegate lookup and response generation to the established workflow function and delegate review persistence to `approval.record_approval`.
+- Bind the API to loopback for local use. Require a separately configured `REVIEW_API_KEY` before allowing any review decision; a missing server-side key fails closed.
+- Keep unresolved API responses in memory and make that limitation explicit rather than introducing a new persistence schema. Audit only explicit decisions, using the existing approval table.
+- Use a temporary database and in-process TestClient for API coverage. Tests verify Pending default, auth failure, approval/rejection audit, invalid-decision handling, and offline fallback.

@@ -76,3 +76,19 @@
 - `python scripts/check_secrets.py` — passed; no likely secret patterns found.
 
 **Next:** Phase 4, add a thin FastAPI interface and isolated tests if dependencies and current application boundaries support it.
+
+## Phase 4 — Thin FastAPI interface
+
+**Status: Complete**
+
+- Added FastAPI endpoints for health checks, response generation, and human review. The workflow endpoint only creates a Pending result; it never approves or executes an action.
+- Added template, mock, and OpenAI provider selection. OpenAI mode without a configured key uses the existing template fallback.
+- Protected review decisions with `REVIEW_API_KEY`, constant-time key comparison, strict Approved/Rejected input validation, and the existing SQLite audit log. Invalid or unauthorized review requests do not change pending state.
+- Pending responses live in process memory until reviewed. A process restart discards unresolved pending items; completed review decisions remain in SQLite.
+- Added FastAPI, Uvicorn, and HTTPX dependencies. Installed the declared API dependencies in the workspace Python environment.
+- Added eight API tests using FastAPI's in-process test client and temporary SQLite databases. `python -m unittest -v` — **199 tests passed** (`Ran 199 tests in 6.087s`, exit 0).
+- `python flowpilot.py --classify-tests` — **25/25 passed**, exit 0.
+- `python scripts/check_secrets.py` — passed; no likely secret patterns found.
+- No OpenAI API request was made.
+
+**Next:** Phase 5, strengthen database and audit integrity and cover failure/replay cases.

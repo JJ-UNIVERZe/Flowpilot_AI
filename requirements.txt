@@ -7,3 +7,8 @@ sqlite3 is part of the Python standard library and is not listed here.
 # The application still works without this package; it only enables the
 # real OpenAIProvider path when OPENAI_API_KEY is configured.
 openai>=1.0.0
+
+# Thin HTTP API and its in-process test client
+fastapi>=0.110.0,<1.0.0
+uvicorn>=0.27.0,<1.0.0
+httpx>=0.26.0,<1.0.0

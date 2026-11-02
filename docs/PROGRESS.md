@@ -48,3 +48,18 @@
 - No remote was configured or used.
 
 **Next:** Phase 2, core workflow hardening and CLI provider modes.
+
+## Phase 2 — Core workflow hardening and provider modes
+
+**Status: Complete**
+
+- Changed database initialization so existing sample order, refund, and payment values are not overwritten on later lookups. A regression test edits an existing record, initializes again, and verifies that the stored values survive.
+- Updated `MockLLM` to read the structured request category from customer-context content rather than being misled by matching words in system instructions.
+- Added explicit CLI modes for template, mock, and OpenAI providers, with `--message`, `--db`, and `--json` options. Positional messages and the existing `--llm` flag remain supported.
+- Added JSON schema version `1.0` to workflow results and exported JSON.
+- Added CLI routing, missing-key safety, mock provider, data-preservation, and JSON-version regression coverage. The complete suite passes: `python -m unittest -v` — **191 tests passed** (`Ran 191 tests in 6.198s`, exit 0).
+- `python flowpilot.py --classify-tests` — **25/25 passed**, exit 0.
+- `python scripts/check_secrets.py` — passed; no likely secret patterns found.
+- No OpenAI API request was made. OpenAI CLI verification used the missing-key path, and provider workflows were mocked.
+
+**Next:** Phase 3, add manual-only live OpenAI verification guidance and document that live service behavior remains unverified.

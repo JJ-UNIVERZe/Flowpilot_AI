@@ -137,25 +137,8 @@ def create_database() -> None:
                 SAMPLE_ORDERS,
             )
 
-            # Backfill the refund/payment columns for orders that already
-            # existed before Stage 4, without touching their earlier fields.
-            # Existing rows are updated in place, never deleted or re-created.
-            connection.executemany(
-                """
-                UPDATE orders
-                SET refund_status = ?, refund_amount = ?,
-                    payment_method = ?, transaction_status = ?
-                WHERE order_id = ?
-                """,
-                [
-                    (refund_status, refund_amount, payment_method,
-                     transaction_status, order_id)
-                    for (order_id, _name, _product, _order_status,
-                         _payment_status, _delivery_date, refund_status,
-                         refund_amount, payment_method, transaction_status)
-                    in SAMPLE_ORDERS
-                ],
-            )
+            # Seed rows only when absent. Existing order, refund, and payment
+            # facts are read-only and must never be overwritten by startup.
     except sqlite3.Error as error:
         # The technical detail stays on the exception chain for debugging; the
         # message itself is safe to show to a customer.

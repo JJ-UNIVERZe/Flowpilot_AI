@@ -22,12 +22,14 @@ Run it:
     python flowpilot.py --classify-tests       # classification test table
 """
 
+import argparse
 import json
 import re
 import sys
 from pathlib import Path
 
 import approval
+import database
 from database import (
     DATABASE_UNAVAILABLE_TEXT,
     DatabaseError,
@@ -283,6 +285,7 @@ def output_node(original_message: str, category: str, next_action: str,
                 customer_response: str | None = None,
                 input_error: str | None = None) -> dict:
     return {
+        "schema_version": JSON_SCHEMA_VERSION,
         "original_message": original_message,
         "category": category,
         "next_action": next_action,
@@ -528,27 +531,61 @@ def run_workflow_with_llm(message: str) -> dict:
     human-in-the-loop approval is handled separately by
     run_workflow_with_approval().
     """
-    if not _LLM_MODULE_AVAILABLE:
-        result = run_workflow(message)
-        result["customer_response"] = generate_response(result)
-        return result
-
-    result = run_workflow(message)
-
-    # If the workflow already hit an input problem, do not attempt the LLM.
-    if result.get("input_error"):
-        return result
-
     provider = None
-    if get_openai_provider is not None:
+    if _LLM_MODULE_AVAILABLE and get_openai_provider is not None:
         try:
             provider = get_openai_provider()
         except Exception:
             provider = None
 
-    if provider is None:
-        result["customer_response"] = generate_response(result)
+    return run_workflow_with_provider(message, provider)
+
+
+def run_workflow_with_provider(message: str, provider: LLMProvider | None) -> dict:
+    """Run one lookup, generate with the selected provider, and use real templates on failure."""
+    result = run_workflow(message)
+    if result.get("input_error"):
         return result
+
+    candidate = None
+    if provider is not None and _LLM_MODULE_AVAILABLE:
+        try:
+            candidate = _generate_llm_text(result, provider)
+        except Exception:
+            candidate = None
+
+    result["customer_response"] = candidate or generate_response(result)
+    return result
+
+
+def run_workflow_with_provider_and_approval(
+    message: str,
+    provider: LLMProvider | None,
+    input_func=input,
+    output_func=print,
+) -> dict:
+    """Use a selected provider but keep human review as the only approval path."""
+    result = run_workflow_with_provider(message, provider)
+
+    decision = approval.review_response(
+        result["customer_response"],
+        input_func=input_func,
+        output_func=output_func,
+    )
+    if decision == approval.PENDING:
+        output_func("")
+        output_func("No approval decision was recorded.")
+        return result
+
+    approval_record = approval.record_approval(
+        response=result["customer_response"],
+        decision=decision,
+        customer_message=result["original_message"],
+    )
+    result["approval"] = approval_record
+    result["approval_status"] = approval_record["approval_status"]
+    result["can_proceed"] = approval.can_proceed(approval_record["approval_status"])
+    return result
 
     try:
         llm_text = _generate_llm_text(result, provider)
@@ -572,29 +609,15 @@ def run_workflow_with_llm_and_approval(
     The LLM is used only for tone and wording. A human must still approve
     or reject the response before it can proceed.
     """
-    result = run_workflow_with_llm(message)
-
-    decision = approval.review_response(
-        result["customer_response"],
-        input_func=input_func,
-        output_func=output_func,
+    provider = None
+    if _LLM_MODULE_AVAILABLE and get_openai_provider is not None:
+        try:
+            provider = get_openai_provider()
+        except Exception:
+            provider = None
+    return run_workflow_with_provider_and_approval(
+        message, provider, input_func=input_func, output_func=output_func
     )
-
-    if decision == approval.PENDING:
-        output_func("")
-        output_func("No approval decision was recorded.")
-        return result
-
-    approval_record = approval.record_approval(
-        response=result["customer_response"],
-        decision=decision,
-        customer_message=result["original_message"],
-    )
-
-    result["approval"] = approval_record
-    result["approval_status"] = approval_record["approval_status"]
-    result["can_proceed"] = approval.can_proceed(approval_record["approval_status"])
-    return result
 
 
 def _generate_llm_text(result: dict, provider: LLMProvider) -> str | None:
@@ -765,7 +788,9 @@ def print_result(result: dict, show_response: bool = True) -> None:
 JSON_OUTPUT_PATH = Path(__file__).with_name("workflow_result.json")
 
 # The exact fields exported, in this order.
+JSON_SCHEMA_VERSION = "1.0"
 JSON_FIELDS = (
+    "schema_version",
     "original_message",
     "category",
     "order_id",
@@ -798,7 +823,10 @@ def export_result_to_json(result: dict,
 
     Only the fields in JSON_FIELDS are written, always in the same order.
     """
-    payload = {field: result.get(field) for field in JSON_FIELDS}
+    payload = {
+        field: JSON_SCHEMA_VERSION if field == "schema_version" else result.get(field)
+        for field in JSON_FIELDS
+    }
     try:
         with open(file_path, "w", encoding="utf-8") as json_file:
             json.dump(payload, json_file, indent=2, ensure_ascii=False,
@@ -814,86 +842,91 @@ def export_result_to_json(result: dict,
 # Terminal commands
 # ---------------------------------------------------------------------------
 def main(argv: list[str]) -> int:
-    """Handle the supported commands and return an exit code.
+    """Run the backward-compatible CLI with an explicit optional provider mode."""
+    parser = argparse.ArgumentParser(description="FlowPilot AI fictional support demo")
+    parser.add_argument("message_parts", nargs="*", help="Customer message (legacy form)")
+    parser.add_argument("--message", help="Customer message")
+    parser.add_argument(
+        "--mode", choices=("template", "mock", "openai"),
+        help="Response provider; defaults to template mode",
+    )
+    parser.add_argument("--llm", action="store_true", help="Legacy alias for --mode openai")
+    parser.add_argument("--json", action="store_true", dest="export_json")
+    parser.add_argument("--db", help="SQLite database path")
+    parser.add_argument("--classify-tests", action="store_true")
+    options = parser.parse_args(argv)
 
-    python flowpilot.py                          -> built-in test cases
-    python flowpilot.py "message"                -> one message + human review
-    python flowpilot.py --json "message"         -> review + JSON file
-    python flowpilot.py --classify-tests         -> classification table
-    python flowpilot.py --llm "message"          -> LLM path + human review
-    """
-    args = list(argv)
-    export_json = False
-    use_llm = False
+    if options.classify_tests:
+        return 0 if run_classification_tests() else 1
 
-    # Flags may appear before the message.
-    while args and args[0].startswith("--"):
-        if args[0] == "--json":
-            export_json = True
-            del args[0]
-        elif args[0] == "--llm":
-            use_llm = True
-            del args[0]
-        elif args[0] == "--classify-tests":
-            all_passed = run_classification_tests()
-            return 0 if all_passed else 1
-        else:
-            break
+    if options.message and options.message_parts:
+        parser.error("Use either --message or positional message text, not both.")
+    if options.llm and options.mode not in (None, "openai"):
+        parser.error("--llm cannot be combined with a non-OpenAI --mode.")
 
-    if args:
-        message = " ".join(args)
-        print("\nFlowPilot AI - workflow with human review")
-
-        if use_llm:
-            try:
-                result = run_workflow_with_llm_and_approval(message)
-            except ValueError as error:
-                print(f"  The approval could not be recorded: {error}")
-                return 1
-            except RuntimeError:
-                print("  The approval could not be recorded because the sample "
-                      "order database is unavailable.")
-                return 1
-
-            print("\nFlowPilot AI - LLM path result")
-            print("  Response source: LLM path (with template fallback)")
-        else:
-            try:
-                result = run_workflow_with_approval(message)
-            except ValueError as error:
-                print(f"  The approval could not be recorded: {error}")
-                return 1
-            except RuntimeError:
-                print("  The approval could not be recorded because the sample "
-                      "order database is unavailable.")
-                return 1
-
-            print("\nFlowPilot AI - final result")
-
-        print_result(result, show_response=False)
-
-        if export_json:
-            try:
-                path = export_result_to_json(result)
-            except RuntimeError as error:
-                print(f"  JSON export failed: {error}")
-                print()
-                return 1
-            print(f"  JSON saved to: {path}")
-        print()
+    message = options.message or " ".join(options.message_parts)
+    if not message:
+        if options.mode or options.llm or options.export_json:
+            parser.error("A customer message is required for the selected options.")
+        print("\nFlowPilot AI - test run (local sample database demo)\n")
+        for i, test_message in enumerate(TEST_MESSAGES, start=1):
+            print(f"Test {i}")
+            print_result(run_workflow(test_message))
+            print()
         return 0
 
-    if export_json:
-        # --json was given without a message to process.
-        print('Usage: python flowpilot.py --json "My order ORD1042 has not arrived"')
+    mode = options.mode or ("openai" if options.llm else "template")
+    if options.db:
+        database_path = Path(options.db).expanduser()
+        database.DATABASE_PATH = database_path
+
+    provider = None
+    if mode == "mock":
+        if not _LLM_MODULE_AVAILABLE:
+            print("Mock mode is unavailable because the response provider module could not be loaded.")
+            return 2
+        from llm_response_generator import MockLLM
+
+        mock_reply = "I can help with your request."
+        provider = MockLLM({
+            "Delivery Issue": mock_reply,
+            "Refund Inquiry": mock_reply,
+            "Payment Issue": mock_reply,
+            "General Inquiry": mock_reply,
+            "Unknown Request": mock_reply,
+        })
+    elif mode == "openai":
+        provider = get_openai_provider() if get_openai_provider is not None else None
+        if provider is None:
+            print("OpenAI mode requires OPENAI_API_KEY. No response was generated.")
+            return 2
+
+    print("\nFlowPilot AI - workflow with human review")
+    try:
+        if mode == "template":
+            result = run_workflow_with_approval(message)
+        else:
+            result = run_workflow_with_provider_and_approval(message, provider)
+    except ValueError as error:
+        print(f"  The approval could not be recorded: {error}")
+        return 1
+    except RuntimeError:
+        print("  The approval could not be recorded because the sample "
+              "order database is unavailable.")
         return 1
 
-    # Test mode: run the built-in examples.
-    print("\nFlowPilot AI - test run (local sample database demo)\n")
-    for i, message in enumerate(TEST_MESSAGES, start=1):
-        print(f"Test {i}")
-        print_result(run_workflow(message))
-        print()
+    print("\nFlowPilot AI - final result")
+    print(f"  Response mode: {mode}")
+    print_result(result, show_response=False)
+
+    if options.export_json:
+        try:
+            path = export_result_to_json(result)
+        except RuntimeError as error:
+            print(f"  JSON export failed: {error}")
+            return 1
+        print(f"  JSON saved to: {path}")
+    print()
     return 0
 
 

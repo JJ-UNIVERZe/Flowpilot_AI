@@ -153,9 +153,20 @@ class MockLLM(LLMProvider):
         delivery action: it only writes customer-facing text.
         """
         try:
-            combined = " ".join(
-                str(message.get("content", "")) for message in messages
-            ).lower()
+            user_content = " ".join(
+                str(message.get("content", ""))
+                for message in messages
+                if message.get("role") == "user"
+            )
+            category_match = re.search(
+                r"(?m)^- Request category: (Delivery Issue|Refund Inquiry|"
+                r"Payment Issue|General Inquiry|Unknown Request)$",
+                user_content,
+            )
+            if category_match:
+                return self._responses.get(category_match.group(1))
+
+            combined = user_content.lower()
 
             # Match the category by whole-word keyword found in the message.
             # The order below preserves the legacy priority: refund, payment,
@@ -1293,7 +1304,10 @@ def _build_data_block(
     payment_method: Optional[str],
     transaction_status: Optional[str],
 ) -> str:
-    lines = ["FACTS FOR RESPONSE:"]
+    lines = [
+        "FACTS FOR RESPONSE:",
+        f"- Request category: {category}",
+    ]
 
     if order_id:
         lines.append(f"- Order ID: {order_id}")

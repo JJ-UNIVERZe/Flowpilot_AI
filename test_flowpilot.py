@@ -29,6 +29,8 @@ import tempfile
 import unittest
 from llm_response_generator import MockLLM
 from contextlib import closing
+from contextlib import redirect_stdout
+from io import StringIO
 from pathlib import Path
 from unittest import mock
 
@@ -336,6 +338,33 @@ class TestDatabaseLookup(TempDatabaseTestCase):
         after = database.get_order("ORD4261")
         self.assertEqual(before, after)
 
+    def test_initialization_does_not_overwrite_existing_order_or_financial_data(self):
+        with closing(sqlite3.connect(self.test_db_path)) as connection, connection:
+            connection.execute(
+                """
+                UPDATE orders
+                SET order_status = ?, refund_status = ?, refund_amount = ?,
+                    transaction_status = ?
+                WHERE order_id = ?
+                """,
+                ("Delayed", "Refund Requested", 17.25, "Payment Pending", "ORD2050"),
+            )
+
+        database.create_database()
+
+        self.assertEqual(database.get_order("ORD2050")["order_status"], "Delayed")
+        self.assertEqual(
+            database.get_refund_status("ORD2050")["refund_status"],
+            "Refund Requested",
+        )
+        self.assertAlmostEqual(
+            database.get_refund_status("ORD2050")["refund_amount"], 17.25
+        )
+        self.assertEqual(
+            database.get_payment_status("ORD2050")["transaction_status"],
+            "Payment Pending",
+        )
+
     def test_workflow_does_not_modify_the_real_database(self):
         """The suite's temporary database must keep the real file untouched."""
         before = REAL_DATABASE_PATH.read_bytes() if REAL_DATABASE_PATH.exists() else None
@@ -556,6 +585,7 @@ class TestJSONExport(TempDatabaseTestCase):
 
         parsed = json.loads(self.json_path.read_text(encoding="utf-8"))
         self.assertEqual(tuple(parsed.keys()), flowpilot.JSON_FIELDS)
+        self.assertEqual(parsed["schema_version"], flowpilot.JSON_SCHEMA_VERSION)
 
     def test_exported_values_match_the_result(self):
         """Values are not dropped or changed during serialization."""
@@ -1278,6 +1308,29 @@ class TestMockLLMProvider(unittest.TestCase):
         mock = MockLLM({"Delivery Issue": "Okay"})
         self.assertIsNone(mock.generate("I need help changing my account details."))
 
+    def test_mock_uses_structured_category_not_system_prompt_keywords(self):
+        from llm_response_generator import MockLLM
+
+        provider = MockLLM({
+            "Delivery Issue": "Delivery response.",
+            "Refund Inquiry": "Refund response.",
+        })
+        response = provider.generate_messages([
+            {
+                "role": "system",
+                "content": "Do not execute real refunds, payments, or deliveries.",
+            },
+            {
+                "role": "user",
+                "content": (
+                    "FACTS FOR RESPONSE:\n"
+                    "- Request category: Delivery Issue\n"
+                    "- Order status: Shipped"
+                ),
+            },
+        ])
+        self.assertEqual(response, "Delivery response.")
+
 
 class TestOpenAIProviderConfiguration(unittest.TestCase):
     """OpenAIProvider configuration and failure modes."""
@@ -1941,6 +1994,15 @@ class TestWorkflowWithLLM(TempDatabaseTestCase):
         self.assertEqual(result["category"], "Delivery Issue")
         self.assertIn("Shipped", result["customer_response"])
 
+    def test_selected_mock_provider_generates_a_valid_workflow_response(self):
+        from llm_response_generator import MockLLM
+
+        provider = MockLLM({"Delivery Issue": "Your order is on its way."})
+        result = flowpilot.run_workflow_with_provider(
+            "My order ORD1042 has not arrived.", provider
+        )
+        self.assertEqual(result["customer_response"], "Your order is on its way.")
+
     def test_llm_path_uses_template_fallback_when_provider_unavailable(self):
         from llm_response_generator import OpenAIProvider
 
@@ -2115,6 +2177,83 @@ class TestWorkflowWithLLM(TempDatabaseTestCase):
         result = flowpilot.run_workflow_with_llm_and_approval(
             message, input_func=keyboard, output_func=printed.append)
         return result, printed
+
+
+class TestCLIModes(TempDatabaseTestCase):
+    """CLI mode selection remains safe and routes through human review."""
+
+    def setUp(self):
+        super().setUp()
+        self._original_database_path = database.DATABASE_PATH
+        self.addCleanup(self._restore_database_path)
+
+    def _restore_database_path(self):
+        database.DATABASE_PATH = self._original_database_path
+
+    def test_cli_template_mode_remains_the_default(self):
+        expected = self.run_message("My order ORD1042 has not arrived.")
+        with mock.patch.object(
+            flowpilot, "run_workflow_with_approval", return_value=expected
+        ) as workflow, redirect_stdout(StringIO()):
+            status = flowpilot.main(["--message", "My order ORD1042 has not arrived."])
+
+        self.assertEqual(status, 0)
+        workflow.assert_called_once()
+
+    def test_cli_mock_mode_selects_mock_provider_and_database(self):
+        from llm_response_generator import MockLLM
+
+        called = []
+
+        def fake_reviewed_workflow(message, provider):
+            called.append((message, provider, database.DATABASE_PATH))
+            return self.run_message(message)
+
+        with redirect_stdout(StringIO()), mock.patch.object(
+            flowpilot,
+            "run_workflow_with_provider_and_approval",
+            side_effect=fake_reviewed_workflow,
+        ):
+            status = flowpilot.main([
+                "--mode", "mock",
+                "--message", "My order ORD1042 has not arrived.",
+                "--db", str(self.test_db_path),
+            ])
+
+        self.assertEqual(status, 0)
+        self.assertEqual(len(called), 1)
+        self.assertIsInstance(called[0][1], MockLLM)
+        self.assertEqual(called[0][2], self.test_db_path)
+
+    def test_cli_openai_mode_without_key_fails_without_calling_provider(self):
+        with mock.patch.dict("os.environ", {}, clear=True):
+            output = StringIO()
+            with redirect_stdout(output):
+                status = flowpilot.main([
+                    "--mode", "openai",
+                    "--message", "My order ORD1042 has not arrived.",
+                ])
+
+        self.assertEqual(status, 2)
+        self.assertIn("requires OPENAI_API_KEY", output.getvalue())
+
+    def test_legacy_llm_flag_selects_openai_provider(self):
+        from llm_response_generator import MockLLM
+
+        selected = MockLLM({})
+        result = self.run_message("My order ORD1042 has not arrived.")
+        with mock.patch.object(
+            flowpilot, "get_openai_provider", return_value=selected
+        ), mock.patch.object(
+            flowpilot, "run_workflow_with_provider_and_approval",
+            return_value=result,
+        ) as workflow, redirect_stdout(StringIO()):
+            status = flowpilot.main([
+                "--llm", "My order ORD1042 has not arrived."
+            ])
+
+        self.assertEqual(status, 0)
+        self.assertIs(workflow.call_args.args[1], selected)
 
 
 if __name__ == "__main__":

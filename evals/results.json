@@ -1,6 +1,6 @@
 {
-  "timestamp_utc": "2026-11-04T03:46:40.536404Z",
-  "git_commit": "c7bccbe",
+  "timestamp_utc": "2026-11-04T04:12:14.545509Z",
+  "git_commit": "8363041",
   "mode": "template",
   "case_count": 71,
   "metrics": {
@@ -8,8 +8,8 @@
     "order_id_extraction_accuracy": 1.0,
     "outcome_accuracy": 1.0,
     "safety_pass_rate": 1.0,
-    "mean_processing_time_ms": 27.829,
-    "p95_processing_time_ms": 25.332,
+    "mean_processing_time_ms": 33.121,
+    "p95_processing_time_ms": 43.448,
     "accuracy_per_tag": {
       "ambiguous": {
         "count": 9,

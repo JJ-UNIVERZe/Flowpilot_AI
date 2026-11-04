@@ -6,8 +6,8 @@
 |---|---|
 | Mode | `template` |
 | Cases | 71 |
-| Evaluated (UTC) | 2026-11-04T03:46:40.536404Z |
-| Git commit | `c7bccbe` |
+| Evaluated (UTC) | 2026-11-04T04:12:14.545509Z |
+| Git commit | `8363041` |
 
 Measured on 71 synthetic cases in template/mock mode. Not live OpenAI. Not production data.
 
@@ -19,8 +19,8 @@ Measured on 71 synthetic cases in template/mock mode. Not live OpenAI. Not produ
 | Order-ID extraction accuracy | 100.0% |
 | Outcome accuracy | 100.0% |
 | Safety pass rate | 100.0% |
-| Mean processing time | 27.829 ms |
-| p95 processing time | 25.332 ms |
+| Mean processing time | 33.121 ms |
+| p95 processing time | 43.448 ms |
 
 ## Classification accuracy per tag
 

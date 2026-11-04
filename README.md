@@ -90,7 +90,12 @@ The UI talks to the API over HTTP. It defaults to
 `http://127.0.0.1:8000`; set `FLOWPILOT_API_URL` if the local API uses another
 address. OpenAI mode requires a separate billable-request confirmation in the
 UI. The reviewer enters the API's configured `REVIEW_API_KEY` to approve or
-reject a pending response.
+reject a pending response; the key is entered in a password field in the
+sidebar. The Evaluation and Review stats tabs use the same key to read
+`GET /evaluation` and `GET /stats`. Set `EVALUATION_RESULTS_PATH` in the API
+process to serve an evaluation report from a different path; by default it
+reads `evals/results.json`. Review stats report category counts only if the
+approval audit table contains a category column.
 
 Keep both services on loopback for local demonstration. The generation API
 and n8n webhook are not a production authentication boundary.

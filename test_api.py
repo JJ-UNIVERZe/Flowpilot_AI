@@ -1,6 +1,8 @@
 """HTTP API tests using FastAPI's in-process client and temporary SQLite."""
 
 import os
+import hashlib
+import json
 import sqlite3
 import tempfile
 from contextlib import closing
@@ -38,6 +40,119 @@ class TestHTTPAPI(unittest.TestCase):
         response = self.client.get("/health")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json(), {"status": "ok"})
+
+    def test_evaluation_endpoint_requires_reviewer_key(self):
+        response = self.client.get("/evaluation")
+        self.assertEqual(response.status_code, 401)
+
+    def test_evaluation_endpoint_returns_configured_json_file(self):
+        results_path = Path(self._temp_dir.name) / "evaluation.json"
+        expected = {"mode": "template", "case_count": 1}
+        results_path.write_text(json.dumps(expected), encoding="utf-8")
+        with mock.patch.dict(
+            os.environ, {"EVALUATION_RESULTS_PATH": str(results_path)}
+        ):
+            response = self.client.get(
+                "/evaluation", headers={"X-Review-API-Key": "test-review-key"}
+            )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), expected)
+
+    def test_evaluation_endpoint_returns_clear_404_when_file_is_missing(self):
+        missing_path = Path(self._temp_dir.name) / "missing-evaluation.json"
+        with mock.patch.dict(
+            os.environ, {"EVALUATION_RESULTS_PATH": str(missing_path)}
+        ):
+            response = self.client.get(
+                "/evaluation", headers={"X-Review-API-Key": "test-review-key"}
+            )
+        self.assertEqual(response.status_code, 404)
+        self.assertIn("Run scripts/evaluate.py first", response.json()["detail"])
+
+    def test_evaluation_endpoint_returns_safe_500_for_invalid_json(self):
+        results_path = Path(self._temp_dir.name) / "invalid-evaluation.json"
+        results_path.write_text("{invalid", encoding="utf-8")
+        with mock.patch.dict(
+            os.environ, {"EVALUATION_RESULTS_PATH": str(results_path)}
+        ):
+            response = self.client.get(
+                "/evaluation", headers={"X-Review-API-Key": "test-review-key"}
+            )
+        self.assertEqual(response.status_code, 500)
+        self.assertEqual(
+            response.json()["detail"], "Evaluation results could not be read."
+        )
+        self.assertNotIn(str(results_path), response.text)
+
+    def test_evaluation_endpoint_returns_safe_500_for_invalid_encoding(self):
+        results_path = Path(self._temp_dir.name) / "invalid-encoding.json"
+        results_path.write_bytes(b"\xff")
+        with mock.patch.dict(
+            os.environ, {"EVALUATION_RESULTS_PATH": str(results_path)}
+        ):
+            response = self.client.get(
+                "/evaluation", headers={"X-Review-API-Key": "test-review-key"}
+            )
+        self.assertEqual(response.status_code, 500)
+        self.assertEqual(
+            response.json()["detail"], "Evaluation results could not be read."
+        )
+        self.assertNotIn(str(results_path), response.text)
+
+    def test_stats_endpoint_requires_reviewer_key(self):
+        response = self.client.get("/stats")
+        self.assertEqual(response.status_code, 401)
+
+    def test_stats_endpoint_counts_decisions_and_categories_without_writes(self):
+        with closing(sqlite3.connect(database.DATABASE_PATH)) as connection:
+            connection.execute(
+                "ALTER TABLE approval_logs ADD COLUMN category TEXT"
+            )
+            connection.executemany(
+                """
+                INSERT INTO approval_logs
+                    (customer_message, generated_response, approval_status,
+                     reviewed_at, category)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                [
+                    ("message 1", "response 1", "Approved", "now", "Refund Inquiry"),
+                    ("message 2", "response 2", "Approved", "now", "Delivery Issue"),
+                    ("message 3", "response 3", "Rejected", "now", "Refund Inquiry"),
+                ],
+            )
+            connection.commit()
+        before = hashlib.sha256(database.DATABASE_PATH.read_bytes()).digest()
+
+        response = self.client.get(
+            "/stats", headers={"X-Review-API-Key": "test-review-key"}
+        )
+
+        after = hashlib.sha256(database.DATABASE_PATH.read_bytes()).digest()
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json(),
+            {
+                "total_decisions": 3,
+                "by_decision": {"Approved": 2, "Rejected": 1},
+                "by_category": {"Delivery Issue": 1, "Refund Inquiry": 2},
+            },
+        )
+        self.assertEqual(after, before)
+
+    def test_stats_endpoint_omits_categories_when_not_recorded(self):
+        response = self.client.get(
+            "/stats", headers={"X-Review-API-Key": "test-review-key"}
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json(),
+            {
+                "total_decisions": 0,
+                "by_decision": {"Approved": 0, "Rejected": 0},
+                "by_category": {},
+            },
+        )
 
     def test_workflow_response_stays_pending_until_human_review(self):
         response = self.client.post(

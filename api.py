@@ -1,7 +1,11 @@
 """Local HTTP API for generating responses and recording human review."""
 
 import hmac
+import json
 import os
+import sqlite3
+from contextlib import closing
+from pathlib import Path
 from threading import RLock
 from typing import Any, Literal
 from uuid import uuid4
@@ -17,6 +21,7 @@ import flowpilot
 app = FastAPI(title="FlowPilot AI", version="1.0")
 pending_responses: dict[str, dict[str, Any]] = {}
 _pending_lock = RLock()
+DEFAULT_EVALUATION_RESULTS_PATH = Path(__file__).with_name("evals") / "results.json"
 
 
 class WorkflowRequest(BaseModel):
@@ -70,6 +75,87 @@ def _require_reviewer_key(supplied_key: str | None) -> None:
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.get("/evaluation")
+def get_evaluation(
+    x_review_api_key: str | None = Header(default=None, alias="X-Review-API-Key"),
+) -> Any:
+    """Return the latest offline evaluation report without modifying it."""
+    _require_reviewer_key(x_review_api_key)
+    results_path = Path(
+        os.getenv("EVALUATION_RESULTS_PATH", str(DEFAULT_EVALUATION_RESULTS_PATH))
+    )
+    try:
+        with results_path.open(encoding="utf-8") as results_file:
+            return json.load(results_file)
+    except FileNotFoundError as error:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Evaluation results not found. Run scripts/evaluate.py first.",
+        ) from error
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Evaluation results could not be read.",
+        ) from error
+
+
+@app.get("/stats")
+def get_review_stats(
+    x_review_api_key: str | None = Header(default=None, alias="X-Review-API-Key"),
+) -> dict[str, Any]:
+    """Return read-only counts of recorded review decisions."""
+    _require_reviewer_key(x_review_api_key)
+    database_uri = database.DATABASE_PATH.resolve().as_uri() + "?mode=ro"
+    try:
+        with closing(sqlite3.connect(database_uri, uri=True)) as connection:
+            columns = {
+                row[1]
+                for row in connection.execute(
+                    "PRAGMA table_info(approval_logs)"
+                ).fetchall()
+            }
+            if not columns:
+                raise sqlite3.OperationalError("approval audit table is unavailable")
+
+            decision_rows = connection.execute(
+                """
+                SELECT approval_status, COUNT(*)
+                FROM approval_logs
+                WHERE approval_status IN (?, ?)
+                GROUP BY approval_status
+                """,
+                ("Approved", "Rejected"),
+            ).fetchall()
+            by_decision = {"Approved": 0, "Rejected": 0}
+            by_decision.update(
+                {decision: count for decision, count in decision_rows}
+            )
+
+            by_category: dict[str, int] = {}
+            if "category" in columns:
+                category_rows = connection.execute(
+                    """
+                    SELECT category, COUNT(*)
+                    FROM approval_logs
+                    WHERE approval_status IN (?, ?) AND category IS NOT NULL
+                    GROUP BY category
+                    """,
+                    ("Approved", "Rejected"),
+                ).fetchall()
+                by_category = {category: count for category, count in category_rows}
+    except sqlite3.Error as error:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Review statistics are unavailable.",
+        ) from error
+
+    return {
+        "total_decisions": sum(by_decision.values()),
+        "by_decision": by_decision,
+        "by_category": by_category,
+    }
 
 
 @app.post("/workflow", status_code=status.HTTP_201_CREATED)

@@ -13,7 +13,14 @@ Run the full suite and the independent classifier checks:
 ```text
 python -m unittest -v
 python flowpilot.py --classify-tests
+python scripts/evaluate.py --mode template
 ```
+
+The offline evaluation also accepts `--mode mock` and `--fail-under 0.0-1.0`.
+It uses the production workflow entry point with a temporary SQLite database,
+and does not invoke OpenAI or human review. `test_evaluation.py` validates the
+labelled cases, evaluator metrics, offline provider boundary, and the measured
+classification-accuracy baseline in `evals/baseline.json`.
 
 Lint, coverage, and secret hygiene:
 

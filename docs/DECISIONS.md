@@ -64,3 +64,8 @@ Decisions will be recorded here as repository hygiene and secret-check implement
 - Document the actual behavior and known limitations rather than promising production readiness. In particular, `.env` is not loaded automatically, API pending records are process-local, and OpenAI/n8n/hosted-CI checks remain unverified.
 - Leave `OPENAI_MODEL` blank in the example and make an empty setting fall back to the provider's documented default model. This keeps the example credential-free and avoids passing an empty model to the SDK when a file-based environment loader is used externally.
 - Final coverage comparison uses the unchanged shared core modules to avoid making the expanded module set look like a direct one-to-one baseline.
+
+## Offline evaluation
+
+- Evaluation labels use the classifier's actual fallback category, `Unknown Request`; `Unknown` is not a category returned by this code.
+- The first hand label for `case-069` was corrected after inspection: “missing from the package” matches the documented delivery-issue rules; it does not contain the supported “missing item” wording for `Damaged Item`. The initial measured classification accuracy was 98.5714%; the baseline is therefore 98%, rounded down to the nearest percentage point.

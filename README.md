@@ -1,4 +1,4 @@
-# FlowPilot AI
+..# FlowPilot AI
 
 FlowPilot AI is a local customer-support workflow demo. It classifies a
 fictional customer message, looks up sample order/refund/payment facts, drafts
@@ -60,6 +60,17 @@ Run the built-in classifier checks:
 python flowpilot.py --classify-tests
 ```
 
+Run the offline labelled evaluation:
+
+```text
+python scripts/evaluate.py --mode template
+python scripts/evaluate.py --mode mock
+```
+
+The evaluator uses fictional cases and a temporary SQLite database. It never
+calls OpenAI or requests human approval. See
+[docs/EVALUATION.md](docs/EVALUATION.md) for the latest measured results.
+
 ## FastAPI and Streamlit
 
 Configure `REVIEW_API_KEY` securely in the API process, then start the API on
@@ -98,6 +109,7 @@ unless you intentionally want to send one billable request.
 ```text
 python -m unittest -v
 python flowpilot.py --classify-tests
+python scripts/evaluate.py
 ruff check .
 coverage run -m unittest discover -v
 coverage report --fail-under=65

@@ -160,7 +160,8 @@ class MockLLM(LLMProvider):
             )
             category_match = re.search(
                 r"(?m)^- Request category: (Delivery Issue|Refund Inquiry|"
-                r"Payment Issue|General Inquiry|Unknown Request)$",
+                r"Payment Issue|General Inquiry|Damaged Item|Cancellation|"
+                r"Address Change|Unknown Request)$",
                 user_content,
             )
             if category_match:
@@ -194,6 +195,10 @@ class MockLLM(LLMProvider):
                 ("refund", "Refund Inquiry"),
                 ("payment", "Payment Issue"),
                 ("return", "General Inquiry"),
+                ("damaged", "Damaged Item"),
+                ("broken", "Damaged Item"),
+                ("cancel", "Cancellation"),
+                ("address", "Address Change"),
             ]
             for delivery_keyword in delivery_keywords:
                 keyword_list.append((delivery_keyword, "Delivery Issue"))

@@ -25,6 +25,7 @@ Run it:
 from __future__ import annotations
 
 import argparse
+import difflib
 import json
 import re
 import sys
@@ -175,14 +176,27 @@ RULES = [
       "send back"],
                                       "General Inquiry",   "Retrieve return policy"),
 
-    # Tier 4 — specific delivery wording
+    # Tier 4 — damaged item complaints and address or order-change requests.
+    (["damaged", "damaged item", "broken", "defective", "cracked",
+      "wrong item", "missing item"],
+                                      "Damaged Item",      "Review damaged item claim"),
+
+    (["cancel my order", "cancel order", "cancel my purchase",
+      "cancel the order", "cancel order now"],
+                                      "Cancellation",      "Review cancellation request"),
+
+    (["change delivery address", "change my address", "update delivery address",
+      "new delivery address", "address change"],
+                                      "Address Change",    "Review address change"),
+
+    # Tier 5 — specific delivery wording
     (["delivery", "deliver", "delivered", "arrived", "arrive", "arriving",
       "not received", "receive", "received", "late", "delay", "delayed",
       "shipped", "shipment", "tracking", "package", "parcel", "courier",
       "dispatch", "dispatched", "on its way"],
                                       "Delivery Issue",    "Look up the order"),
 
-    # Tier 5 — order-status fallback for a bare "order" mention
+    # Tier 6 — order-status fallback for a bare "order" mention
     (["order", "orders"],
                                       "Delivery Issue",    "Look up order status"),
 ]
@@ -194,11 +208,72 @@ FALLBACK_ACTION = "Ask for clarification"
 def _contains_keyword(message: str, keyword: str) -> bool:
     """True when ``keyword`` appears in ``message`` as a whole word/phrase.
 
-    Word boundaries prevent accidental partial matches: "charge" does not
-    match "charger", and "order" does not match "borderline". Both arguments
-    are expected to be lowercase already.
+    Exact phrase matches are preferred, but a tight, conservative fuzzy match
+    is also allowed for common typos such as "dameged" or "refnd". This is
+    intentionally limited so existing categories do not start matching on
+    unrelated words.
     """
-    return re.search(r"\b" + re.escape(keyword) + r"\b", message) is not None
+    if not message or not keyword:
+        return False
+
+    normalized_message = re.sub(r"[^a-z0-9]+", " ", message.lower()).strip()
+    normalized_keyword = re.sub(r"[^a-z0-9]+", " ", keyword.lower()).strip()
+    if not normalized_message or not normalized_keyword:
+        return False
+
+    # Whole-word and whole-phrase matching is the primary rule. We never allow
+    # substring checks on a single word, because "charge" should not match
+    # "charger" or "order" should not match "borderline".
+    if re.search(r"\b" + re.escape(normalized_keyword) + r"\b", normalized_message):
+        return True
+
+    # Allow a very narrow typo fallback for known, common misspellings. This
+    # is intentionally conservative; it does not treat every long word as a
+    # fuzzy match.
+    typo_aliases = {
+        "dameged": "damaged",
+        "damged": "damaged",
+        "refnd": "refund",
+        "refundd": "refund",
+        "recieved": "received",
+        "delievered": "delivered",
+    }
+    candidate_keywords = {normalized_keyword}
+    for typo, canonical in typo_aliases.items():
+        if normalized_keyword == canonical:
+            candidate_keywords.add(typo)
+        elif normalized_keyword == typo:
+            candidate_keywords.add(canonical)
+
+    for candidate in candidate_keywords:
+        if re.search(r"\b" + re.escape(candidate) + r"\b", normalized_message):
+            return True
+
+    tokens = normalized_message.split()
+    keyword_tokens = normalized_keyword.split()
+    if len(keyword_tokens) > 1:
+        phrase = " ".join(tokens)
+        if difflib.SequenceMatcher(None, phrase, normalized_keyword).ratio() >= 0.82:
+            return True
+    for token in tokens:
+        if len(token) < 4:
+            continue
+        if token in candidate_keywords:
+            return True
+        if difflib.SequenceMatcher(None, token, normalized_keyword).ratio() >= 0.93:
+            return True
+    return False
+
+
+def detect_secondary_intents(normalized_message: str, primary_category: str | None = None) -> list[str]:
+    """Return any additional matching categories, preserving priority order."""
+    matches: list[str] = []
+    for keywords, category, _action in RULES:
+        if category == primary_category:
+            continue
+        if any(_contains_keyword(normalized_message, keyword) for keyword in keywords):
+            matches.append(category)
+    return matches
 
 
 def classify_node(normalized_message: str) -> tuple[str, str]:
@@ -226,6 +301,7 @@ def classify_node(normalized_message: str) -> tuple[str, str]:
 # The \b word boundaries are important: without them "ORD12345" would match
 # the first four digits and be treated as a real order ID.
 ORDER_ID_PATTERN = re.compile(r"\bORD\d{4}\b", re.IGNORECASE)
+ORDER_WITH_DELIMITER_PATTERN = re.compile(r"\bORD[-\s]?\d{4}\b", re.IGNORECASE)
 
 # Order-ID-LIKE text that is NOT in the accepted format. Two shapes are
 # recognized so the customer can be told what to fix instead of just being
@@ -234,9 +310,21 @@ ORDER_ID_PATTERN = re.compile(r"\bORD\d{4}\b", re.IGNORECASE)
 # found, so they can never override a correct ORD1042.
 ORDER_LIKE_PATTERN = re.compile(r"\bORD[-\s]?\d+\b", re.IGNORECASE)
 ORDER_NUMBER_PATTERN = re.compile(
-    r"\border\s*(?:id|number|no\.?|#)?\s*(?:is|:)?\s*[:#]?\s*(\d{3,})\b",
+    r"\border\s*(?:id|number|no\.?|#)?\s*(?:is|:)?\s*[:#]?\s*(?:ORD[-\s]?)?(\d{4})\b",
     re.IGNORECASE,
 )
+
+
+def _normalise_order_id(candidate: str) -> str | None:
+    """Return a canonical ORD#### ID from a valid order-number-like token."""
+    cleaned = re.sub(r"[^A-Z0-9]", "", candidate.upper())
+    if cleaned.startswith("ORD"):
+        digits = cleaned[3:]
+    else:
+        digits = cleaned
+    if digits.isdigit() and len(digits) == 4:
+        return f"ORD{digits}"
+    return None
 
 
 def extract_order_id(message: str) -> str | None:
@@ -245,6 +333,26 @@ def extract_order_id(message: str) -> str | None:
     match = ORDER_ID_PATTERN.search(message)   # find the first ORD + 4 digits
     if match:
         return match.group(0).upper()          # normalize ord2050 -> ORD2050
+
+    match = ORDER_WITH_DELIMITER_PATTERN.search(message)
+    if match:
+        normalized = _normalise_order_id(match.group(0))
+        if normalized:
+            return normalized
+
+    for pattern in (ORDER_NUMBER_PATTERN,):
+        match = pattern.search(message)
+        if match:
+            normalized = _normalise_order_id(match.group(0))
+            if normalized:
+                return normalized
+
+    for prefix in ("order #", "order number ", "order no ", "order "):
+        if prefix in message.lower():
+            digits = re.search(rf"{re.escape(prefix)}\s*(?:ORD[-\s]?)?(\d{{4}})\b", message, re.IGNORECASE)
+            if digits:
+                return _normalise_order_id(digits.group(0))
+
     return None
 
 
@@ -261,6 +369,12 @@ def find_malformed_order_id(message: str) -> str | None:
     formatted order ID always wins. The returned text is used only to choose
     a clearer reply; it is never treated as a real order record.
     """
+    # A valid ID always wins over malformed-ID reporting. A message with
+    # "ORD1042" must never be flagged again just because it also contains the
+    # words "order" and "1042" later in the sentence.
+    if extract_order_id(message) is not None:
+        return None
+
     # Skip any token that is a valid order ID, so this function can be called
     # safely even when the message also contains a correct ID.
     for match in ORDER_LIKE_PATTERN.finditer(message):
@@ -285,11 +399,13 @@ def output_node(original_message: str, category: str, next_action: str,
                 refund_details: dict | str | None = None,
                 payment_details: dict | str | None = None,
                 customer_response: str | None = None,
-                input_error: str | None = None) -> dict:
+                input_error: str | None = None,
+                secondary_intents: list[str] | None = None) -> dict:
     return {
         "schema_version": JSON_SCHEMA_VERSION,
         "original_message": original_message,
         "category": category,
+        "secondary_intents": secondary_intents or [],
         "next_action": next_action,
         "order_id": order_id,
         "order_details": order_details,
@@ -351,6 +467,7 @@ def _run_workflow(message: str) -> dict:
     raw = input_node(message)                     # connection 1 -> 2
     normalized = normalize_node(raw)              # connection 2 -> 3
     category, action = classify_node(normalized)  # connection 3 -> 4
+    secondary_intents = detect_secondary_intents(normalized, category)
 
     # Stage 2 — extract the order ID from the ORIGINAL message (the
     # lowercased copy would give us "ord1042", so we uppercase it back),
@@ -427,7 +544,8 @@ def _run_workflow(message: str) -> dict:
     # The final result includes Stage 2's ID plus any Stage 3/4 lookup details.
     result = output_node(raw, category, action, order_id, order_details,
                          refund_details, payment_details,
-                         input_error=input_error)
+                         input_error=input_error,
+                         secondary_intents=secondary_intents)
 
     # Stage 5 — turn the completed result into a customer-friendly message.
     # generate_response() only reads this dictionary, so there is no circular
@@ -440,7 +558,8 @@ def _error_result(message: str | None, input_error: str, action: str) -> dict:
     """Build a safe result for a request that could not be processed."""
     original_message = message if isinstance(message, str) else ""
     result = output_node(original_message, FALLBACK_CATEGORY, action,
-                         None, None, None, None, input_error=input_error)
+                         None, None, None, None, input_error=input_error,
+                         secondary_intents=[])
     result["customer_response"] = generate_response(result)
     return result
 
@@ -778,11 +897,12 @@ def print_result(result: dict, show_response: bool = True) -> None:
 JSON_OUTPUT_PATH = Path(__file__).with_name("workflow_result.json")
 
 # The exact fields exported, in this order.
-JSON_SCHEMA_VERSION = "1.0"
+JSON_SCHEMA_VERSION = "2.0"
 JSON_FIELDS = (
     "schema_version",
     "original_message",
     "category",
+    "secondary_intents",
     "order_id",
     "next_action",
     "order_details",
@@ -813,10 +933,14 @@ def export_result_to_json(result: dict,
 
     Only the fields in JSON_FIELDS are written, always in the same order.
     """
-    payload = {
-        field: JSON_SCHEMA_VERSION if field == "schema_version" else result.get(field)
-        for field in JSON_FIELDS
-    }
+    payload = {}
+    for field in JSON_FIELDS:
+        if field == "schema_version":
+            payload[field] = JSON_SCHEMA_VERSION
+        elif field == "secondary_intents":
+            payload[field] = result.get(field, [])
+        else:
+            payload[field] = result.get(field)
     try:
         with open(file_path, "w", encoding="utf-8") as json_file:
             json.dump(payload, json_file, indent=2, ensure_ascii=False,

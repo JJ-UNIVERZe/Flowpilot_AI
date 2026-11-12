@@ -71,6 +71,20 @@ The evaluator uses fictional cases and a temporary SQLite database. It never
 calls OpenAI or requests human approval. See
 [docs/EVALUATION.md](docs/EVALUATION.md) for the latest measured results.
 
+## Policy lookup (RAG)
+
+General Inquiry replies can use local fictional Markdown policies in `kb/`.
+The retriever is pure Python (BM25), makes no network or embedding calls, and
+adds source titles to the reply. Policy passages are treated as data; unsupported
+numbers and promises are rejected, and a human still makes every final decision.
+If no passage is found, the existing General Inquiry template is used.
+
+The authenticated, read-only `GET /kb/search?q=...` endpoint returns up to
+three passages and requires `X-Review-API-Key`. The `/process` route is an alias
+for `/workflow`; both keep generated responses Pending. See
+[docs/KNOWLEDGE_BASE.md](docs/KNOWLEDGE_BASE.md) for document and evaluation
+guidance.
+
 ## FastAPI and Streamlit
 
 Configure `REVIEW_API_KEY` securely in the API process, then start the API on

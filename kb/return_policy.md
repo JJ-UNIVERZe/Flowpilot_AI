@@ -1,7 +1,7 @@
 FICTIONAL DEMO POLICY. Not a real company.
 # Return Policy
 
-## Return window
+## Return policy window
 Customers may request a return within 14 calendar days after delivery. A human reviewer confirms whether the request is within the window.
 
 ## Item condition

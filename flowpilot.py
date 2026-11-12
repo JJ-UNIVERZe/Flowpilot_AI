@@ -43,6 +43,7 @@ from database import (
     get_refund_status,
 )
 from response_generator import generate_response
+from knowledge_base import search as search_policy
 
 if TYPE_CHECKING:
     from llm_response_generator import LLMProvider
@@ -423,6 +424,9 @@ def output_node(original_message: str, category: str, next_action: str,
         "approval_status": approval.PENDING,
         "approval": None,
         "can_proceed": False,
+        "policy_found": False,
+        "policy_sources": [],
+        "policy_validation_reason": None,
     }
 
 
@@ -547,6 +551,30 @@ def _run_workflow(message: str) -> dict:
                          input_error=input_error,
                          secondary_intents=secondary_intents)
 
+    if category == "General Inquiry":
+        passages = search_policy(raw, k=3)
+        result["policy_found"] = bool(passages)
+        seen_doc_ids: set[str] = set()
+        for passage in passages:
+            if passage.doc_id in seen_doc_ids:
+                continue
+            seen_doc_ids.add(passage.doc_id)
+            result["policy_sources"].append(
+                {
+                    "doc_id": passage.doc_id,
+                    "title": passage.title,
+                    "score": passage.score,
+                }
+            )
+        result["_policy_passages"] = [
+            {
+                "doc_id": passage.doc_id,
+                "title": passage.title,
+                "text": passage.text,
+            }
+            for passage in passages
+        ]
+
     # Stage 5 — turn the completed result into a customer-friendly message.
     # generate_response() only reads this dictionary, so there is no circular
     # import between flowpilot.py and response_generator.py.
@@ -669,13 +697,18 @@ def run_workflow_with_provider(message: str, provider: LLMProvider | None) -> di
         return result
 
     candidate = None
-    if provider is not None and _LLM_MODULE_AVAILABLE:
+    if (
+        provider is not None
+        and _LLM_MODULE_AVAILABLE
+        and (result.get("category") != "General Inquiry" or result.get("policy_found"))
+    ):
         try:
             candidate = _generate_llm_text(result, provider)
         except Exception:
             candidate = None
 
     result["customer_response"] = candidate or generate_response(result)
+    result.pop("_policy_passages", None)
     return result
 
 

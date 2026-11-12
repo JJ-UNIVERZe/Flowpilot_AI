@@ -304,6 +304,18 @@ def main() -> None:
             result = current["result"]
             st.subheader("Generated response")
             st.text(result["customer_response"])
+            st.badge(
+                "Policy found" if result.get("policy_found") else "No policy found",
+                color="green" if result.get("policy_found") else "gray",
+            )
+            with st.expander("Sources used"):
+                sources = result.get("policy_sources", [])
+                if isinstance(sources, list) and sources:
+                    for source in sources:
+                        if isinstance(source, dict) and source.get("title"):
+                            st.write(source["title"])
+                else:
+                    st.caption("No policy passages were retrieved.")
             st.write(f"Approval status: **{result['approval_status']}**")
 
             if result["approval_status"] != "Pending":

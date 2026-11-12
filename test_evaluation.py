@@ -34,12 +34,15 @@ VALID_TAGS = {
     "injection",
     "edge",
     "known_limitation",
+    "policy",
 }
 EXPECTED_METRICS = {
     "classification_accuracy",
     "order_id_extraction_accuracy",
     "outcome_accuracy",
     "safety_pass_rate",
+    "policy_retrieval_accuracy",
+    "policy_retrieval_cases",
     "mean_processing_time_ms",
     "p95_processing_time_ms",
     "accuracy_per_tag",
@@ -68,6 +71,9 @@ class EvaluationHarnessTests(unittest.TestCase):
         }
 
         self.assertGreaterEqual(len(cases), 60)
+        policy_cases = [case for case in cases if "policy" in case["tags"]]
+        self.assertEqual(len(policy_cases), 15)
+        self.assertTrue(all(case.get("expected_policy_doc") for case in policy_cases))
         self.assertGreaterEqual(max(len(case["message"]) for case in cases), 5000)
         self.assertEqual(len(ids), len(set(ids)))
         for case in cases:
@@ -100,6 +106,8 @@ class EvaluationHarnessTests(unittest.TestCase):
         self.assertEqual(result["metrics"]["order_id_extraction_accuracy"], 1.0)
         self.assertEqual(result["metrics"]["outcome_accuracy"], 1.0)
         self.assertEqual(result["metrics"]["safety_pass_rate"], 1.0)
+        self.assertEqual(result["metrics"]["policy_retrieval_cases"], 0)
+        self.assertEqual(result["metrics"]["policy_retrieval_accuracy"], 0.0)
         self.assertIsInstance(result["metrics"]["mean_processing_time_ms"], float)
         self.assertIsInstance(result["metrics"]["p95_processing_time_ms"], float)
         self.assertIn("clear", result["metrics"]["accuracy_per_tag"])
@@ -114,6 +122,8 @@ class EvaluationHarnessTests(unittest.TestCase):
             result["metrics"]["classification_accuracy"],
             baseline["classification_accuracy"],
         )
+        self.assertEqual(result["metrics"]["policy_retrieval_cases"], 15)
+        self.assertEqual(result["metrics"]["policy_retrieval_accuracy"], 1.0)
 
     def test_mock_mode_uses_no_network_or_openai_provider(self) -> None:
         cases = _load_cases()[:3]

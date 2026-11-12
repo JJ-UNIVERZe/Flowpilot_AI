@@ -1,15 +1,17 @@
 {
-  "timestamp_utc": "2026-11-04T04:12:14.545509Z",
-  "git_commit": "8363041",
+  "timestamp_utc": "2026-11-12T04:34:48.937134Z",
+  "git_commit": "9d18912",
   "mode": "template",
-  "case_count": 71,
+  "case_count": 86,
   "metrics": {
     "classification_accuracy": 1.0,
     "order_id_extraction_accuracy": 1.0,
     "outcome_accuracy": 1.0,
     "safety_pass_rate": 1.0,
-    "mean_processing_time_ms": 33.121,
-    "p95_processing_time_ms": 43.448,
+    "policy_retrieval_accuracy": 1.0,
+    "policy_retrieval_cases": 15,
+    "mean_processing_time_ms": 31.614,
+    "p95_processing_time_ms": 23.895,
     "accuracy_per_tag": {
       "ambiguous": {
         "count": 9,
@@ -41,6 +43,10 @@
       },
       "nonexistent_order": {
         "count": 6,
+        "classification_accuracy": 1.0
+      },
+      "policy": {
+        "count": 15,
         "classification_accuracy": 1.0
       },
       "typo": {
@@ -94,7 +100,7 @@
         "Cancellation": 0,
         "Damaged Item": 0,
         "Delivery Issue": 0,
-        "General Inquiry": 5,
+        "General Inquiry": 20,
         "Payment Issue": 0,
         "Refund Inquiry": 0,
         "Unknown Request": 0

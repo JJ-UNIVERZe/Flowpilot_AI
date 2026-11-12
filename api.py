@@ -10,12 +10,13 @@ from threading import RLock
 from typing import Any, Literal
 from uuid import uuid4
 
-from fastapi import FastAPI, Header, HTTPException, status
+from fastapi import FastAPI, Header, HTTPException, Query, status
 from pydantic import BaseModel, Field
 
 import approval
 import database
 import flowpilot
+import knowledge_base
 
 
 app = FastAPI(title="FlowPilot AI", version="1.0")
@@ -75,6 +76,32 @@ def _require_reviewer_key(supplied_key: str | None) -> None:
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.get("/kb/search")
+def search_policy_knowledge_base(
+    q: str = Query(min_length=1, max_length=200),
+    x_review_api_key: str | None = Header(default=None, alias="X-Review-API-Key"),
+) -> dict[str, Any]:
+    """Return read-only policy matches to an authenticated reviewer."""
+    _require_reviewer_key(x_review_api_key)
+    if not q.strip():
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Query must not be empty.",
+        )
+    passages = knowledge_base.search(q, k=3)
+    return {
+        "results": [
+            {
+                "doc_id": passage.doc_id,
+                "title": passage.title,
+                "text": passage.text,
+                "score": passage.score,
+            }
+            for passage in passages
+        ]
+    }
 
 
 @app.get("/evaluation")
@@ -158,6 +185,7 @@ def get_review_stats(
     }
 
 
+@app.post("/process", status_code=status.HTTP_201_CREATED)
 @app.post("/workflow", status_code=status.HTTP_201_CREATED)
 def create_workflow(request: WorkflowRequest) -> dict[str, Any]:
     """Generate a response but leave it Pending until an authorized human reviews it."""
@@ -174,6 +202,8 @@ def create_workflow(request: WorkflowRequest) -> dict[str, Any]:
     return {
         "response_id": response_id,
         "mode": request.mode,
+        "policy_found": result["policy_found"],
+        "policy_sources": result["policy_sources"],
         "result": result,
     }
 

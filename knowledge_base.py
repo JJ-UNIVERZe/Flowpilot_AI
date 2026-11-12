@@ -19,7 +19,7 @@ STOPWORDS = frozenset(
     {
         "a", "an", "and", "are", "as", "at", "be", "been", "but", "by",
         "can", "could", "do", "does", "for", "from", "had", "has", "have",
-        "how", "i", "in", "into", "is", "it", "long", "longer", "me", "my",
+        "how", "i", "in", "into", "is", "it", "item", "long", "longer", "me", "my",
         "of", "on", "or",
         "our", "please", "the", "their", "there", "they", "this", "to",
         "until", "was", "we", "what", "when", "where", "which", "who", "why",
@@ -251,6 +251,7 @@ def search(
     scored: list[tuple[float, _Chunk]] = []
     for chunk in index.chunks:
         term_frequencies = Counter(chunk.tokens)
+        title_frequencies = Counter(_tokenize(chunk.title))
         length_ratio = (
             len(chunk.tokens) / index.average_length if index.average_length else 0.0
         )
@@ -268,6 +269,28 @@ def search(
                 inverse_frequency
                 * (frequency * (1.5 + 1) / denominator)
                 * query_frequency
+            )
+            if title_frequencies[token]:
+                score += (
+                    inverse_frequency
+                    * 2.0
+                    * min(title_frequencies[token], query_frequency)
+                    / len(title_frequencies)
+                )
+        if title_frequencies and all(
+            query_frequencies[token] for token in title_frequencies
+        ):
+            score += sum(
+                math.log(
+                    1
+                    + (
+                        count
+                        - index.document_frequencies.get(token, 0)
+                        + 0.5
+                    )
+                    / (index.document_frequencies.get(token, 0) + 0.5)
+                )
+                for token in title_frequencies
             )
         if score >= min_score:
             scored.append((score, chunk))

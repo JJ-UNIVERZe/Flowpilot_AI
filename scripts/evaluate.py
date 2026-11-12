@@ -38,6 +38,7 @@ TAGS = {
     "injection",
     "edge",
     "known_limitation",
+    "policy",
 }
 LOOKUP_CATEGORIES = {"Delivery Issue", "Refund Inquiry", "Payment Issue"}
 REAL_CATEGORIES = {
@@ -84,6 +85,11 @@ def _validate_cases(cases: list[dict[str, Any]]) -> None:
             isinstance(tag, str) and tag in TAGS for tag in case["tags"]
         ):
             raise ValueError(f"Case {case_id} has invalid tags.")
+        expected_policy_doc = case.get("expected_policy_doc")
+        if expected_policy_doc is not None and not isinstance(expected_policy_doc, str):
+            raise ValueError(f"Case {case_id} expected_policy_doc must be a string.")
+        if "policy" in case["tags"] and not expected_policy_doc:
+            raise ValueError(f"Policy case {case_id} needs expected_policy_doc.")
 
 
 def _provider_for_mode(mode: str):
@@ -149,6 +155,12 @@ def evaluate_cases(cases: list[dict[str, Any]], mode: str = "template") -> dict[
                     "order_id": result["order_id"],
                     "outcome": _actual_outcome(result),
                 }
+                policy_sources = result.get("policy_sources", [])
+                actual_policy_doc = (
+                    policy_sources[0]["doc_id"]
+                    if policy_sources
+                    else None
+                )
                 expected = {
                     "category": case["expected_category"],
                     "order_id": case["expected_order_id"],
@@ -164,6 +176,8 @@ def evaluate_cases(cases: list[dict[str, Any]], mode: str = "template") -> dict[
                         "id": case["id"],
                         "expected": expected,
                         "actual": actual,
+                        "expected_policy_doc": case.get("expected_policy_doc"),
+                        "actual_policy_doc": actual_policy_doc,
                         "safety_pass": safety_pass,
                         "processing_time_ms": elapsed_ms,
                     }
@@ -185,6 +199,13 @@ def evaluate_cases(cases: list[dict[str, Any]], mode: str = "template") -> dict[
         for item in case_results
     )
     safety_passes = sum(item["safety_pass"] for item in case_results)
+    labelled_policy_cases = [
+        item for item in case_results if item["expected_policy_doc"] is not None
+    ]
+    policy_matches = sum(
+        item["expected_policy_doc"] == item["actual_policy_doc"]
+        for item in labelled_policy_cases
+    )
 
     categories = sorted(REAL_CATEGORIES)
     confusion_matrix = {
@@ -214,14 +235,29 @@ def evaluate_cases(cases: list[dict[str, Any]], mode: str = "template") -> dict[
         if (
             item["expected"] != item["actual"]
             or not item["safety_pass"]
+            or (
+                item["expected_policy_doc"] is not None
+                and item["expected_policy_doc"] != item["actual_policy_doc"]
+            )
         )
     ]
+    for failure in failures:
+        case_result = next(item for item in case_results if item["id"] == failure["id"])
+        if case_result["expected_policy_doc"] is not None:
+            failure["expected_policy_doc"] = case_result["expected_policy_doc"]
+            failure["actual_policy_doc"] = case_result["actual_policy_doc"]
     return {
         "metrics": {
             "classification_accuracy": classification_correct / total,
             "order_id_extraction_accuracy": order_id_correct / total,
             "outcome_accuracy": outcome_correct / total,
             "safety_pass_rate": safety_passes / total,
+            "policy_retrieval_accuracy": (
+                policy_matches / len(labelled_policy_cases)
+                if labelled_policy_cases
+                else 0.0
+            ),
+            "policy_retrieval_cases": len(labelled_policy_cases),
             "mean_processing_time_ms": round(sum(timings) / total, 3),
             "p95_processing_time_ms": round(timings[p95_index], 3),
             "accuracy_per_tag": {
@@ -281,6 +317,8 @@ def _write_report(
         f"| Order-ID extraction accuracy | {metrics['order_id_extraction_accuracy']:.1%} |",
         f"| Outcome accuracy | {metrics['outcome_accuracy']:.1%} |",
         f"| Safety pass rate | {metrics['safety_pass_rate']:.1%} |",
+        f"| Policy retrieval accuracy | {metrics['policy_retrieval_accuracy']:.1%} "
+        f"({metrics['policy_retrieval_cases']} labelled cases) |",
         f"| Mean processing time | {metrics['mean_processing_time_ms']:.3f} ms |",
         f"| p95 processing time | {metrics['p95_processing_time_ms']:.3f} ms |",
         "",
@@ -368,6 +406,10 @@ def main(argv: list[str] | None = None) -> int:
     print(f"Order-ID extraction accuracy: {metrics['order_id_extraction_accuracy']:.1%}")
     print(f"Outcome accuracy: {metrics['outcome_accuracy']:.1%}")
     print(f"Safety pass rate: {metrics['safety_pass_rate']:.1%}")
+    print(
+        f"Policy retrieval accuracy: {metrics['policy_retrieval_accuracy']:.1%} "
+        f"({metrics['policy_retrieval_cases']} labelled cases)"
+    )
     print(f"Mean processing time: {metrics['mean_processing_time_ms']:.3f} ms")
     print(f"p95 processing time: {metrics['p95_processing_time_ms']:.3f} ms")
     print(f"Failed cases: {len(results['failures'])}")

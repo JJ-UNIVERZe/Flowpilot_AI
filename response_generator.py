@@ -383,6 +383,34 @@ def _general_inquiry_response() -> str:
     """Predefined demonstration response for General Inquiry requests."""
     return GENERAL_INQUIRY_RESPONSE
 
+
+def _policy_inquiry_response(result: dict) -> str:
+    """Build a sourced General Inquiry response without making a decision."""
+    passages = result.get("_policy_passages")
+    if not result.get("policy_found") or not isinstance(passages, list) or not passages:
+        return _general_inquiry_response()
+
+    passage = passages[0]
+    if not isinstance(passage, dict):
+        return _general_inquiry_response()
+    title = str(passage.get("title", "")).strip()
+    text = str(passage.get("text", "")).strip()
+    if not title or not text:
+        return _general_inquiry_response()
+
+    response = (
+        f"Hello,\n\nFor {title}, the fictional policy information says:\n\n"
+        f"{text}\n\n"
+        "A human reviewer makes the final decision on any request."
+    )
+    from llm_response_generator import validate_policy_response
+
+    valid, reason = validate_policy_response(response, result)
+    if not valid:
+        result["policy_validation_reason"] = reason
+        return _general_inquiry_response()
+    return response
+
 DAMAGED_ITEM_RESPONSE = (
     "Hello,\n\n"
     "Thank you for contacting us about a damaged item. We are sorry to hear "
@@ -468,7 +496,7 @@ RESPONSE_HANDLERS = {
     "Delivery Issue": _delivery_response,
     "Refund Inquiry": _refund_response,
     "Payment Issue": _payment_response,
-    "General Inquiry": lambda result: _general_inquiry_response(),
+    "General Inquiry": _policy_inquiry_response,
     "Damaged Item": lambda result: _damaged_item_response(),
     "Cancellation": lambda result: _cancellation_response(),
     "Address Change": lambda result: _address_change_response(),
@@ -558,6 +586,9 @@ def generate_response(result: dict, llm: Optional[LLMProvider] = None) -> str:
     input_error = result.get("input_error")
     if input_error in INPUT_PROBLEM_RESPONSES:
         return INPUT_PROBLEM_RESPONSES[input_error]
+
+    if result.get("policy_validation_reason") and result.get("category") == "General Inquiry":
+        return _general_inquiry_response()
 
     # Step 2: Attempt LLM generation (if LLM provider and module available)
     if llm is not None and _LLM_AVAILABLE:

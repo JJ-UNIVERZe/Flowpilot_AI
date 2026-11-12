@@ -5,8 +5,9 @@
 ```text
 CLI ─────────────────────────┐
 Streamlit UI -> FastAPI      ├─> classify/validate -> one SQLite lookup
-n8n -> FastAPI               │       -> template or selected provider
-                             │       -> factual validation -> template fallback
+n8n -> FastAPI               │       -> General Inquiry policy retrieval
+                             │       -> template or selected provider
+                             │       -> factual/policy validation -> fallback
                              └───────> Pending response -> explicit human review
                                                        -> SQLite approval audit
 ```
@@ -17,11 +18,13 @@ classification or data access:
 1. `flowpilot.py` normalizes and classifies the customer message.
 2. The workflow extracts a supported order ID and performs at most one relevant
    lookup. The result dictionary is reused for response generation.
-3. Template mode calls `response_generator.py`. Mock and OpenAI modes use the
-   provider abstraction in `llm_response_generator.py`.
-4. An OpenAI candidate is accepted only after factual validation. Missing keys,
-   provider errors, empty text, and rejected claims use the real template
-   response.
+3. Only General Inquiry searches the local policy folder. Template mode cites
+   the top passage; mock and OpenAI modes receive delimited passages as
+   untrusted data. Other categories do not use the policy index.
+4. Provider candidates are checked against workflow facts and, for General
+   Inquiry, policy numbers and promises are checked against retrieved text.
+   Missing passages, provider errors, empty text, and rejected claims use the
+   existing template response.
 5. CLI review, the FastAPI review endpoint, or Streamlit can record a decision.
    Generation alone always leaves `approval_status` Pending and
    `can_proceed` false.
@@ -43,8 +46,14 @@ override system rules.
 
 The model only drafts text. It has no database write interface or tools for
 issuing refunds, changing orders, or processing payments. Regex-based factual
-validation is a defensive filter, not a semantic proof; mandatory human review
-remains in place.
+and policy validation are defensive filters, not semantic proofs. Retrieved
+passages and customer messages are data, never instructions. Mandatory human
+review remains in place.
+
+`GET /kb/search?q=...` requires the configured reviewer key, limits queries to
+200 characters, and returns at most three local passages without modifying
+data. `/process` and the existing `/workflow` endpoint return the same Pending
+workflow result.
 
 ## SQLite and audit records
 

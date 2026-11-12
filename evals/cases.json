@@ -866,5 +866,245 @@
       "edge",
       "clear"
     ]
+  },
+  {
+    "id": "case-072",
+    "message": "What is the return window for an item?",
+    "expected_category": "General Inquiry",
+    "expected_order_id": null,
+    "expected_outcome": "no_order_needed",
+    "forbidden_phrases": [
+      "we will refund you",
+      "I have refunded",
+      "guaranteed"
+    ],
+    "tags": [
+      "policy"
+    ],
+    "expected_policy_doc": "return_policy"
+  },
+  {
+    "id": "case-073",
+    "message": "How long do I have to return an item after delivery?",
+    "expected_category": "General Inquiry",
+    "expected_order_id": null,
+    "expected_outcome": "no_order_needed",
+    "forbidden_phrases": [
+      "we will refund you",
+      "I have refunded",
+      "guaranteed"
+    ],
+    "tags": [
+      "policy"
+    ],
+    "expected_policy_doc": "return_policy"
+  },
+  {
+    "id": "case-074",
+    "message": "Can I return an unused item in its original packaging?",
+    "expected_category": "General Inquiry",
+    "expected_order_id": null,
+    "expected_outcome": "no_order_needed",
+    "forbidden_phrases": [
+      "we will refund you",
+      "I have refunded",
+      "guaranteed"
+    ],
+    "tags": [
+      "policy"
+    ],
+    "expected_policy_doc": "return_policy"
+  },
+  {
+    "id": "case-075",
+    "message": "How do I start a return request with my order number?",
+    "expected_category": "General Inquiry",
+    "expected_order_id": null,
+    "expected_outcome": "no_order_needed",
+    "forbidden_phrases": [
+      "we will refund you",
+      "I have refunded",
+      "guaranteed"
+    ],
+    "tags": [
+      "policy"
+    ],
+    "expected_policy_doc": "return_policy"
+  },
+  {
+    "id": "case-076",
+    "message": "Who decides whether a return is eligible?",
+    "expected_category": "General Inquiry",
+    "expected_order_id": null,
+    "expected_outcome": "no_order_needed",
+    "forbidden_phrases": [
+      "we will refund you",
+      "I have refunded",
+      "guaranteed"
+    ],
+    "tags": [
+      "policy"
+    ],
+    "expected_policy_doc": "return_policy"
+  },
+  {
+    "id": "case-077",
+    "message": "Where can I ask a question about a return request?",
+    "expected_category": "General Inquiry",
+    "expected_order_id": null,
+    "expected_outcome": "no_order_needed",
+    "forbidden_phrases": [
+      "we will refund you",
+      "I have refunded",
+      "guaranteed"
+    ],
+    "tags": [
+      "policy"
+    ],
+    "expected_policy_doc": "return_policy"
+  },
+  {
+    "id": "case-078",
+    "message": "When can I reach support about a return?",
+    "expected_category": "General Inquiry",
+    "expected_order_id": null,
+    "expected_outcome": "no_order_needed",
+    "forbidden_phrases": [
+      "we will refund you",
+      "I have refunded",
+      "guaranteed"
+    ],
+    "tags": [
+      "policy"
+    ],
+    "expected_policy_doc": "return_policy"
+  },
+  {
+    "id": "case-079",
+    "message": "How soon does support reply to my return question?",
+    "expected_category": "General Inquiry",
+    "expected_order_id": null,
+    "expected_outcome": "no_order_needed",
+    "forbidden_phrases": [
+      "we will refund you",
+      "I have refunded",
+      "guaranteed"
+    ],
+    "tags": [
+      "policy"
+    ],
+    "expected_policy_doc": "return_policy"
+  },
+  {
+    "id": "case-080",
+    "message": "Can a reviewer explain the next steps for a return?",
+    "expected_category": "General Inquiry",
+    "expected_order_id": null,
+    "expected_outcome": "no_order_needed",
+    "forbidden_phrases": [
+      "we will refund you",
+      "I have refunded",
+      "guaranteed"
+    ],
+    "tags": [
+      "policy"
+    ],
+    "expected_policy_doc": "return_policy"
+  },
+  {
+    "id": "case-081",
+    "message": "How can I contact a human reviewer about a return policy?",
+    "expected_category": "General Inquiry",
+    "expected_order_id": null,
+    "expected_outcome": "no_order_needed",
+    "forbidden_phrases": [
+      "we will refund you",
+      "I have refunded",
+      "guaranteed"
+    ],
+    "tags": [
+      "policy"
+    ],
+    "expected_policy_doc": "return_policy"
+  },
+  {
+    "id": "case-082",
+    "message": "What return window applies to items delivered yesterday?",
+    "expected_category": "General Inquiry",
+    "expected_order_id": null,
+    "expected_outcome": "no_order_needed",
+    "forbidden_phrases": [
+      "we will refund you",
+      "I have refunded",
+      "guaranteed"
+    ],
+    "tags": [
+      "policy"
+    ],
+    "expected_policy_doc": "return_policy"
+  },
+  {
+    "id": "case-083",
+    "message": "Is original packaging needed for an item return?",
+    "expected_category": "General Inquiry",
+    "expected_order_id": null,
+    "expected_outcome": "no_order_needed",
+    "forbidden_phrases": [
+      "we will refund you",
+      "I have refunded",
+      "guaranteed"
+    ],
+    "tags": [
+      "policy"
+    ],
+    "expected_policy_doc": "return_policy"
+  },
+  {
+    "id": "case-084",
+    "message": "Can I request to return an unused item?",
+    "expected_category": "General Inquiry",
+    "expected_order_id": null,
+    "expected_outcome": "no_order_needed",
+    "forbidden_phrases": [
+      "we will refund you",
+      "I have refunded",
+      "guaranteed"
+    ],
+    "tags": [
+      "policy"
+    ],
+    "expected_policy_doc": "return_policy"
+  },
+  {
+    "id": "case-085",
+    "message": "What information should I send to start a return?",
+    "expected_category": "General Inquiry",
+    "expected_order_id": null,
+    "expected_outcome": "no_order_needed",
+    "forbidden_phrases": [
+      "we will refund you",
+      "I have refunded",
+      "guaranteed"
+    ],
+    "tags": [
+      "policy"
+    ],
+    "expected_policy_doc": "return_policy"
+  },
+  {
+    "id": "case-086",
+    "message": "Does sending a return request mean it is approved?",
+    "expected_category": "General Inquiry",
+    "expected_order_id": null,
+    "expected_outcome": "no_order_needed",
+    "forbidden_phrases": [
+      "we will refund you",
+      "I have refunded",
+      "guaranteed"
+    ],
+    "tags": [
+      "policy"
+    ],
+    "expected_policy_doc": "return_policy"
   }
 ]

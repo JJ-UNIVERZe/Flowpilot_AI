@@ -170,3 +170,35 @@
 ### Final project status
 
 Phases 0–9 have been implemented and validated locally. This is a functioning local demo, not a production-ready customer-support service. The unresolved external/infrastructure checks and security limitations are documented in `docs/SECURITY.md` and the final response.
+
+## Upgrade request baseline architecture (2026-11-13)
+
+Before starting the requested LLM-agent phases, the current repository contains:
+
+- `flowpilot.py`: deterministic rule-based classification, order-ID extraction, one relevant SQLite lookup, response coordination, factual validation handoff, CLI, and human approval.
+- `database.py` and `orders.db`: fictional sample orders, refund/payment facts, additive schema migration, and append-only approval audit records. Existing fixtures are not overwritten on initialization.
+- `response_generator.py`, `llm_response_generator.py`, and `knowledge_base.py`: safe template responses, optional official OpenAI SDK provider plus offline `MockLLM`, local policy retrieval, and response validation/fallback.
+- `api.py`: FastAPI health, workflow/process, policy search, evaluation, statistics, and authenticated review endpoints. New workflows remain pending; pending workflow state is process-local.
+- `ui.py`: Streamlit client for the API, generation, reviewer decisions, evaluation, and review statistics.
+- `scripts/evaluate.py` and `evals/{cases.json,baseline.json,results.json}`: existing offline labeled workflow evaluation and its recorded result.
+- `test_*.py`, `requirements*.txt`, `pyproject.toml`, `.github/workflows/ci.yml`, and `scripts/check_secrets.py`: unittest coverage, runtime/dev dependencies, Ruff/Coverage configuration, CI, and secret scanning.
+- `README.md` and `docs/`: setup, architecture, security, testing, policy, evaluation, and manual live-provider guidance.
+
+The requested extension should therefore add isolated tool-calling and agent-run capabilities while preserving the original endpoints, classifier, response generation, and review behavior. The prior final audit records 212 tests, Ruff, coverage, classifier, and secret scan as passing; these are historical claims and will be re-run against this workspace before relying on them.
+
+## Requested agent upgrade
+
+**Baseline:** Architecture recorded above before implementation.
+
+### Phase 1 — Tool calling
+
+**Status: Complete**
+
+- Added additive SQLite migration for fictional customer IDs, items, amounts, and order dates; added a fictional seventh seed order, a `refunds` table, and a `tool_call_logs` table without changing the existing lookup API.
+- Added `tools.py` with strictly validated, structured `lookup_order` and policy-based `get_refund_info` functions. Cross-customer lookups do not reveal order data; the refund window and excluded categories are environment-configurable.
+- Added strict OpenAI function schemas, structured tool-dispatch validation, and persisted tool name, arguments, result status, and duration for each invocation.
+- Extended `OpenAIProvider` and `MockLLM` with tool-enabled responses and a scriptable mock tool-call sequence while preserving existing text-generation behavior.
+- Added blank environment placeholders and policy settings; no key was added and no live call was made.
+- Validation: `python -m unittest discover -v` — **262 passed**; `ruff check .` — passed; `python scripts/check_secrets.py` — passed.
+
+**Remaining:** Phases 2–5 (LangGraph and reviewer approval, run metrics, automated agent evaluation, API/UI integration, and documentation).

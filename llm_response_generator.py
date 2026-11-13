@@ -105,6 +105,16 @@ class LLMProvider(ABC):
             )
             return None
 
+    def generate_with_tools(
+        self, messages: list[dict[str, Any]], tools: list[dict[str, Any]]
+    ) -> dict[str, Any] | None:
+        """Return one assistant response with optional tool calls."""
+        content = self.generate_messages(
+            [{"role": str(message["role"]), "content": str(message.get("content", ""))}
+             for message in messages]
+        )
+        return {"content": content, "tool_calls": []} if content else None
+
 
 # ---------------------------------------------------------------------------
 # MOCK LLM FOR TESTING
@@ -123,8 +133,29 @@ class MockLLM(LLMProvider):
             returned (triggering template fallback).
     """
 
-    def __init__(self, responses: Dict[str, str]):
+    def __init__(
+        self,
+        responses: Dict[str, str],
+        tool_call_script: Optional[list[dict[str, Any]]] = None,
+    ):
         self._responses = responses
+        self._tool_call_script = list(tool_call_script or [])
+
+    def generate_with_tools(
+        self, messages: list[dict[str, Any]], tools: list[dict[str, Any]]
+    ) -> dict[str, Any] | None:
+        """Return scripted tool calls first, then the configured text response."""
+        if self._tool_call_script:
+            response = self._tool_call_script.pop(0)
+            return {
+                "content": response.get("content"),
+                "tool_calls": response.get("tool_calls", []),
+            }
+        content = self.generate_messages(
+            [{"role": str(message["role"]), "content": str(message.get("content", ""))}
+             for message in messages]
+        )
+        return {"content": content, "tool_calls": []} if content else None
 
     def generate(
         self,
@@ -305,6 +336,43 @@ class OpenAIProvider(LLMProvider):
         except Exception as exc:
             classification = _classify_openai_error(exc)
             logger.debug("OpenAIProvider.generate_messages() failed: %s", classification)
+            return None
+
+    def generate_with_tools(
+        self, messages: list[dict[str, Any]], tools: list[dict[str, Any]]
+    ) -> dict[str, Any] | None:
+        """Send a tool-enabled chat completion and normalize its response."""
+        if self._client is None:
+            return None
+        try:
+            response = self._client.chat.completions.create(
+                model=self._model,
+                messages=messages,
+                tools=tools,
+                tool_choice="auto",
+            )
+            choices = getattr(response, "choices", None)
+            if not choices:
+                return None
+            message = getattr(choices[0], "message", None)
+            if message is None:
+                return None
+            raw_calls = getattr(message, "tool_calls", None) or []
+            calls = [
+                {
+                    "id": str(call.id),
+                    "type": "function",
+                    "function": {
+                        "name": str(call.function.name),
+                        "arguments": str(call.function.arguments),
+                    },
+                }
+                for call in raw_calls
+            ]
+            return {"content": getattr(message, "content", None), "tool_calls": calls}
+        except Exception as exc:
+            classification = _classify_openai_error(exc)
+            logger.debug("OpenAIProvider.generate_with_tools() failed: %s", classification)
             return None
 
 

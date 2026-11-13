@@ -64,3 +64,16 @@ Decisions will be recorded here as repository hygiene and secret-check implement
 - Document the actual behavior and known limitations rather than promising production readiness. In particular, `.env` is not loaded automatically, API pending records are process-local, and OpenAI/n8n/hosted-CI checks remain unverified.
 - Leave `OPENAI_MODEL` blank in the example and make an empty setting fall back to the provider's documented default model. This keeps the example credential-free and avoids passing an empty model to the SDK when a file-based environment loader is used externally.
 - Final coverage comparison uses the unchanged shared core modules to avoid making the expanded module set look like a direct one-to-one baseline.
+
+## Offline evaluation
+
+- Evaluation labels use the classifier's actual fallback category, `Unknown Request`; `Unknown` is not a category returned by this code.
+- The first hand label for `case-069` was corrected after inspection: “missing from the package” matches the documented delivery-issue rules; it does not contain the supported “missing item” wording for `Damaged Item`. The initial measured classification accuracy was 98.5714%; the baseline is therefore 98%, rounded down to the nearest percentage point.
+
+## Policy retrieval in General Inquiry
+
+- Search local Markdown policies only for `General Inquiry`; other categories retain their existing response paths. Template and mock responses cite the top passage, and provider prompts delimit passages as untrusted data.
+- Reject unsupported policy quantities and refund/replacement/action promises. Rejected provider text uses the pre-existing General Inquiry template, and the result records the reason.
+- Keep `policy_found` and `policy_sources` in workflow/API results but leave the legacy JSON export field list unchanged. Its exact-field regression test remains authoritative.
+- Add an authenticated, read-only `/kb/search` endpoint and preserve `/workflow` while exposing `/process` as an alias. Response generation still remains Pending until a human reviews it.
+- Expand the offline evaluation with 15 labelled General Inquiry policy cases. The 86-case run measured 100.0% overall classification and 100.0% policy retrieval (15/15), so the 98% classification baseline was retained unchanged. Results are in `docs/EVALUATION.md`.

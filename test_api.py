@@ -1,6 +1,8 @@
 """HTTP API tests using FastAPI's in-process client and temporary SQLite."""
 
 import os
+import hashlib
+import json
 import sqlite3
 import tempfile
 from contextlib import closing
@@ -12,6 +14,7 @@ from fastapi.testclient import TestClient
 
 import api
 import database
+import metrics as run_metrics
 
 
 class TestHTTPAPI(unittest.TestCase):
@@ -29,6 +32,8 @@ class TestHTTPAPI(unittest.TestCase):
         self.addCleanup(self._review_key_patcher.stop)
         with api._pending_lock:
             api.pending_responses.clear()
+        with api._agent_runs_lock:
+            api.agent_runs.clear()
         self.client = TestClient(api.app)
 
     def _restore_database_path(self):
@@ -38,6 +43,119 @@ class TestHTTPAPI(unittest.TestCase):
         response = self.client.get("/health")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json(), {"status": "ok"})
+
+    def test_evaluation_endpoint_requires_reviewer_key(self):
+        response = self.client.get("/evaluation")
+        self.assertEqual(response.status_code, 401)
+
+    def test_evaluation_endpoint_returns_configured_json_file(self):
+        results_path = Path(self._temp_dir.name) / "evaluation.json"
+        expected = {"mode": "template", "case_count": 1}
+        results_path.write_text(json.dumps(expected), encoding="utf-8")
+        with mock.patch.dict(
+            os.environ, {"EVALUATION_RESULTS_PATH": str(results_path)}
+        ):
+            response = self.client.get(
+                "/evaluation", headers={"X-Review-API-Key": "test-review-key"}
+            )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), expected)
+
+    def test_evaluation_endpoint_returns_clear_404_when_file_is_missing(self):
+        missing_path = Path(self._temp_dir.name) / "missing-evaluation.json"
+        with mock.patch.dict(
+            os.environ, {"EVALUATION_RESULTS_PATH": str(missing_path)}
+        ):
+            response = self.client.get(
+                "/evaluation", headers={"X-Review-API-Key": "test-review-key"}
+            )
+        self.assertEqual(response.status_code, 404)
+        self.assertIn("Run scripts/evaluate.py first", response.json()["detail"])
+
+    def test_evaluation_endpoint_returns_safe_500_for_invalid_json(self):
+        results_path = Path(self._temp_dir.name) / "invalid-evaluation.json"
+        results_path.write_text("{invalid", encoding="utf-8")
+        with mock.patch.dict(
+            os.environ, {"EVALUATION_RESULTS_PATH": str(results_path)}
+        ):
+            response = self.client.get(
+                "/evaluation", headers={"X-Review-API-Key": "test-review-key"}
+            )
+        self.assertEqual(response.status_code, 500)
+        self.assertEqual(
+            response.json()["detail"], "Evaluation results could not be read."
+        )
+        self.assertNotIn(str(results_path), response.text)
+
+    def test_evaluation_endpoint_returns_safe_500_for_invalid_encoding(self):
+        results_path = Path(self._temp_dir.name) / "invalid-encoding.json"
+        results_path.write_bytes(b"\xff")
+        with mock.patch.dict(
+            os.environ, {"EVALUATION_RESULTS_PATH": str(results_path)}
+        ):
+            response = self.client.get(
+                "/evaluation", headers={"X-Review-API-Key": "test-review-key"}
+            )
+        self.assertEqual(response.status_code, 500)
+        self.assertEqual(
+            response.json()["detail"], "Evaluation results could not be read."
+        )
+        self.assertNotIn(str(results_path), response.text)
+
+    def test_stats_endpoint_requires_reviewer_key(self):
+        response = self.client.get("/stats")
+        self.assertEqual(response.status_code, 401)
+
+    def test_stats_endpoint_counts_decisions_and_categories_without_writes(self):
+        with closing(sqlite3.connect(database.DATABASE_PATH)) as connection:
+            connection.execute(
+                "ALTER TABLE approval_logs ADD COLUMN category TEXT"
+            )
+            connection.executemany(
+                """
+                INSERT INTO approval_logs
+                    (customer_message, generated_response, approval_status,
+                     reviewed_at, category)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                [
+                    ("message 1", "response 1", "Approved", "now", "Refund Inquiry"),
+                    ("message 2", "response 2", "Approved", "now", "Delivery Issue"),
+                    ("message 3", "response 3", "Rejected", "now", "Refund Inquiry"),
+                ],
+            )
+            connection.commit()
+        before = hashlib.sha256(database.DATABASE_PATH.read_bytes()).digest()
+
+        response = self.client.get(
+            "/stats", headers={"X-Review-API-Key": "test-review-key"}
+        )
+
+        after = hashlib.sha256(database.DATABASE_PATH.read_bytes()).digest()
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json(),
+            {
+                "total_decisions": 3,
+                "by_decision": {"Approved": 2, "Rejected": 1},
+                "by_category": {"Delivery Issue": 1, "Refund Inquiry": 2},
+            },
+        )
+        self.assertEqual(after, before)
+
+    def test_stats_endpoint_omits_categories_when_not_recorded(self):
+        response = self.client.get(
+            "/stats", headers={"X-Review-API-Key": "test-review-key"}
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json(),
+            {
+                "total_decisions": 0,
+                "by_decision": {"Approved": 0, "Rejected": 0},
+                "by_category": {},
+            },
+        )
 
     def test_workflow_response_stays_pending_until_human_review(self):
         response = self.client.post(
@@ -171,3 +289,195 @@ class TestHTTPAPI(unittest.TestCase):
         self.assertEqual(response.status_code, 201)
         self.assertTrue(response.json()["result"]["customer_response"])
         self.assertFalse(response.json()["result"]["can_proceed"])
+
+    def test_agent_run_uses_mock_tool_call_and_stops_at_approval(self):
+        response = self.client.post(
+            "/agent/run",
+            json={
+                "message": "Where is my order ORD1042?",
+                "customer_id": "CUST1001",
+            },
+        )
+        self.assertEqual(response.status_code, 201)
+        run = response.json()
+        self.assertEqual(run["status"], "awaiting_approval")
+        self.assertEqual(run["approval_status"], "Pending")
+        self.assertFalse(run["can_proceed"])
+        self.assertEqual(run["tool_results"][0]["result"]["status"], "found")
+        self.assertEqual(run["metrics"]["mode"], "mock")
+        self.assertEqual(run["metrics"]["model_name"], "mock")
+        self.assertEqual(run["metrics"]["prompt_tokens"], 0)
+        self.assertEqual(run["metrics"]["completion_tokens"], 0)
+        self.assertEqual(run["metrics"]["estimated_cost_usd"], 0.0)
+        self.assertGreaterEqual(run["metrics"]["total_latency_ms"], 0)
+
+    def test_agent_metrics_separate_active_time_from_approval_wait(self):
+        headers = {"X-Review-API-Key": "test-review-key"}
+        with mock.patch.object(
+            api,
+            "perf_counter",
+            side_effect=[100.0, 100.053, 100.053, 110.053, 110.080],
+        ):
+            created = self.client.post(
+                "/agent/run",
+                json={
+                    "message": "Where is my order ORD1042?",
+                    "customer_id": "CUST1001",
+                },
+            ).json()
+            approved = self.client.post(
+                f"/agent/runs/{created['run_id']}/approve",
+                json={"action": "approve"},
+                headers=headers,
+            )
+
+        self.assertEqual(approved.status_code, 200)
+        metrics_response = approved.json()["metrics"]
+        self.assertEqual(metrics_response["total_latency_ms"], 80.0)
+        self.assertEqual(metrics_response["approval_wait_ms"], 10000.0)
+        with closing(sqlite3.connect(database.DATABASE_PATH)) as connection:
+            row = connection.execute(
+                "SELECT total_latency_ms, approval_wait_ms FROM run_metrics "
+                "WHERE run_id = ?",
+                (created["run_id"],),
+            ).fetchone()
+        self.assertEqual(row, (80.0, 10000.0))
+
+    def test_pending_run_persists_approval_wait_without_resuming(self):
+        with mock.patch.object(
+            api, "perf_counter", side_effect=[200.0, 200.053, 200.053, 220.053]
+        ):
+            created = self.client.post(
+                "/agent/run",
+                json={
+                    "message": "Where is my order ORD1042?",
+                    "customer_id": "CUST1001",
+                },
+            ).json()
+            response = self.client.get(
+                "/metrics/summary",
+                headers={"X-Review-API-Key": "test-review-key"},
+            )
+
+        self.assertEqual(created["status"], "awaiting_approval")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["avg_latency_ms"], 53.0)
+        self.assertEqual(response.json()["p50_latency_ms"], 53.0)
+        self.assertEqual(response.json()["p95_latency_ms"], 53.0)
+        self.assertEqual(response.json()["avg_approval_wait_ms"], 20000.0)
+        self.assertTrue(api.agent_runs[created["run_id"]]["state"]["__interrupt__"])
+
+    def test_agent_run_requires_customer_id_and_live_key(self):
+        missing_customer = self.client.post(
+            "/agent/run", json={"message": "Where is order ORD1042?"}
+        )
+        self.assertEqual(missing_customer.status_code, 422)
+        with mock.patch.dict(os.environ, {"OPENAI_API_KEY": ""}):
+            live = self.client.post(
+                "/agent/run",
+                json={
+                    "message": "Where is order ORD1042?",
+                    "customer_id": "CUST1001",
+                    "mode": "live",
+                },
+            )
+        self.assertEqual(live.status_code, 503)
+        with mock.patch.dict(
+            os.environ, {"OPENAI_API_KEY": "demo", "LLM_MODE": "mock"}
+        ):
+            live_not_enabled = self.client.post(
+                "/agent/run",
+                json={
+                    "message": "Where is order ORD1042?",
+                    "customer_id": "CUST1001",
+                    "mode": "live",
+                },
+            )
+        self.assertEqual(live_not_enabled.status_code, 503)
+        self.assertIn("LLM_MODE=live", live_not_enabled.json()["detail"])
+
+    def test_agent_run_status_requires_reviewer_authentication(self):
+        created = self.client.post(
+            "/agent/run",
+            json={"message": "Hello", "customer_id": "CUST1001"},
+        ).json()
+        response = self.client.get(f"/agent/runs/{created['run_id']}")
+        self.assertEqual(response.status_code, 401)
+
+    def test_agent_edit_revalidates_then_reject_is_audited(self):
+        created = self.client.post(
+            "/agent/run",
+            json={"message": "Hello", "customer_id": "CUST1001"},
+        ).json()
+        run_id = created["run_id"]
+        headers = {"X-Review-API-Key": "test-review-key"}
+        invalid_edit = self.client.post(
+            f"/agent/runs/{run_id}/approve",
+            json={"action": "edit"},
+            headers=headers,
+        )
+        self.assertEqual(invalid_edit.status_code, 422)
+        edit = self.client.post(
+            f"/agent/runs/{run_id}/approve",
+            json={"action": "edit", "draft_reply": "Thanks for reaching out."},
+            headers=headers,
+        )
+        self.assertEqual(edit.status_code, 200)
+        self.assertEqual(edit.json()["status"], "awaiting_approval")
+        rejected = self.client.post(
+            f"/agent/runs/{run_id}/reject", headers=headers
+        )
+        self.assertEqual(rejected.status_code, 200)
+        self.assertEqual(rejected.json()["approval_status"], "Rejected")
+        self.assertFalse(rejected.json()["can_proceed"])
+        with closing(sqlite3.connect(database.DATABASE_PATH)) as connection:
+            decisions = connection.execute(
+                "SELECT approval_status FROM approval_logs"
+            ).fetchall()
+        self.assertEqual(decisions, [("Rejected",)])
+
+    def test_agent_approval_requires_reviewer_key_and_is_audited(self):
+        created = self.client.post(
+            "/agent/run",
+            json={"message": "Hello", "customer_id": "CUST1001"},
+        ).json()
+        run_id = created["run_id"]
+        denied = self.client.post(
+            f"/agent/runs/{run_id}/approve",
+            json={"action": "approve"},
+        )
+        self.assertEqual(denied.status_code, 401)
+        approved = self.client.post(
+            f"/agent/runs/{run_id}/approve",
+            json={"action": "approve"},
+            headers={"X-Review-API-Key": "test-review-key"},
+        )
+        self.assertEqual(approved.status_code, 200)
+        self.assertEqual(approved.json()["approval_status"], "Approved")
+        self.assertTrue(approved.json()["can_proceed"])
+
+    def test_metrics_summary_requires_key_and_reports_persisted_runs(self):
+        denied = self.client.get("/metrics/summary")
+        self.assertEqual(denied.status_code, 401)
+        run_metrics.record_run_metrics(
+            "metrics-test",
+            {
+                "node_latency_ms": {"agent": 2.0},
+                "llm_latency_ms": 1.0,
+                "prompt_tokens": 0,
+                "completion_tokens": 0,
+                "tool_call_count": 1,
+            },
+            "mock",
+            "mock",
+            12.0,
+        )
+        response = self.client.get(
+            "/metrics/summary",
+            headers={"X-Review-API-Key": "test-review-key"},
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["count"], 1)
+        self.assertEqual(response.json()["p95_latency_ms"], 12.0)
+        self.assertEqual(response.json()["avg_approval_wait_ms"], 0.0)
+        self.assertEqual(response.json()["total_cost_usd"], 0.0)

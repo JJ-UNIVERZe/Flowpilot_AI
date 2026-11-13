@@ -170,3 +170,88 @@
 ### Final project status
 
 Phases 0–9 have been implemented and validated locally. This is a functioning local demo, not a production-ready customer-support service. The unresolved external/infrastructure checks and security limitations are documented in `docs/SECURITY.md` and the final response.
+
+## Upgrade request baseline architecture (2026-11-13)
+
+Before starting the requested LLM-agent phases, the current repository contains:
+
+- `flowpilot.py`: deterministic rule-based classification, order-ID extraction, one relevant SQLite lookup, response coordination, factual validation handoff, CLI, and human approval.
+- `database.py` and `orders.db`: fictional sample orders, refund/payment facts, additive schema migration, and append-only approval audit records. Existing fixtures are not overwritten on initialization.
+- `response_generator.py`, `llm_response_generator.py`, and `knowledge_base.py`: safe template responses, optional official OpenAI SDK provider plus offline `MockLLM`, local policy retrieval, and response validation/fallback.
+- `api.py`: FastAPI health, workflow/process, policy search, evaluation, statistics, and authenticated review endpoints. New workflows remain pending; pending workflow state is process-local.
+- `ui.py`: Streamlit client for the API, generation, reviewer decisions, evaluation, and review statistics.
+- `scripts/evaluate.py` and `evals/{cases.json,baseline.json,results.json}`: existing offline labeled workflow evaluation and its recorded result.
+- `test_*.py`, `requirements*.txt`, `pyproject.toml`, `.github/workflows/ci.yml`, and `scripts/check_secrets.py`: unittest coverage, runtime/dev dependencies, Ruff/Coverage configuration, CI, and secret scanning.
+- `README.md` and `docs/`: setup, architecture, security, testing, policy, evaluation, and manual live-provider guidance.
+
+The requested extension should therefore add isolated tool-calling and agent-run capabilities while preserving the original endpoints, classifier, response generation, and review behavior. The prior final audit records 212 tests, Ruff, coverage, classifier, and secret scan as passing; these are historical claims and will be re-run against this workspace before relying on them.
+
+## Requested agent upgrade
+
+**Baseline:** Architecture recorded above before implementation.
+
+### Phase 1 — Tool calling
+
+**Status: Complete**
+
+- Added additive SQLite migration for fictional customer IDs, items, amounts, and order dates; added a fictional seventh seed order, a `refunds` table, and a `tool_call_logs` table without changing the existing lookup API.
+- Added `tools.py` with strictly validated, structured `lookup_order` and policy-based `get_refund_info` functions. Cross-customer lookups do not reveal order data; the refund window and excluded categories are environment-configurable.
+- Added strict OpenAI function schemas, structured tool-dispatch validation, and persisted tool name, arguments, result status, and duration for each invocation.
+- Extended `OpenAIProvider` and `MockLLM` with tool-enabled responses and a scriptable mock tool-call sequence while preserving existing text-generation behavior.
+- Added blank environment placeholders and policy settings; no key was added and no live call was made.
+- Validation: `python -m unittest discover -v` — **262 passed**; `ruff check .` — passed; `python scripts/check_secrets.py` — passed.
+
+**Remaining:** Phases 2–5 (LangGraph and reviewer approval, run metrics, automated agent evaluation, API/UI integration, and documentation).
+
+### Phase 2 — LangGraph workflow and human approval
+
+**Status: Complete**
+
+- Added typed `agent_graph.py`: reuses the established classifier, enables bounded LLM tool calls, requires an ownership lookup before refund details, validates order facts/amounts/promises, and uses a safe fallback on unsupported drafts.
+- Added a LangGraph `interrupt` approval checkpoint with in-memory checkpointing, editable drafts that are revalidated, and explicit approve/reject outcomes. No customer message is sent and no order/refund data is mutated.
+- Added key-protected agent-run retrieval and approve/reject endpoints while preserving the original API routes. Review decisions are written through the existing immutable approval audit.
+- Added a Streamlit Agent Review tab for the draft, tool results, validation flags, metrics, and approve/edit/reject actions. Live calls require explicit selection and a configured OpenAI key; mock is default.
+- Validation: `python -m unittest discover -v` — **272 passed**; `ruff check .` — passed; `python scripts/check_secrets.py` — passed. No live OpenAI request was made.
+
+**Remaining:** Phases 3–5 (persisted metrics and summary, expanded automated evaluation/CI threshold, final tests and documentation).
+
+### Phase 3 — Latency and token-cost tracking
+
+**Status: Complete**
+
+- Added `metrics.py` and an additive SQLite `run_metrics` table with run mode/model, total and per-node latency, LLM latency, token counts, tool-call count, and estimated USD cost.
+- Agent provider responses now expose token usage/model metadata. Mock mode records zero tokens and zero cost; live cost remains unavailable unless both per-million-token prices are configured via environment variables.
+- Added authenticated `GET /metrics/summary` with count, average, p50/p95 latency, token totals, and priced-run count; added a Streamlit Agent Metrics dashboard page.
+- Validation: `python -m unittest discover -v` — **276 passed**; `ruff check .` — passed; `python scripts/check_secrets.py` — passed. No live OpenAI request was made.
+
+**Remaining:** Phases 4–5 (60+ agent evaluation cases, reason-coded evaluators, mock/live evaluation CLI, comparison and CI gate, final tests/docs).
+
+### Phase 4 — Automated agent evaluation
+
+**Status: Complete**
+
+- Added `evals/agent_cases.jsonl` with 97 cases based on the existing labeled set plus explicit nonexistent-order, cross-customer, expired/already-refunded, missing-ID, vague, Malayalam-style transliteration, injection, discount, and long-input cases.
+- Added evaluators for all nine requested reason codes and `run_eval.py` with offline mock default, gated live mode, a five-case default live limit, configurable latency/accuracy thresholds, JSON/Markdown output, and previous-report comparison.
+- Added a CI mock-evaluation job with repository-configurable `FLOWPILOT_EVAL_MIN_ACCURACY` (default 0.80). Added a fictional expired-window fixture for policy evaluation.
+- Executed the mock evaluation: **97 cases**, **100% category accuracy**, **0 reason-coded failures**, **0 tokens**, **$0 mock cost**. Measured latency and per-category results are in `reports/eval_report.json` and `.md`; these are mock-only results, not real-world accuracy.
+- Validation: `python -m unittest discover -v` — **282 passed**; `ruff check .` — passed; `python scripts/check_secrets.py` — passed; classifier CLI — **25/25 passed**. No live OpenAI request was made.
+
+**Remaining:** Phase 5 (README architecture/setup/evaluation limitations, failure-report template, final regression checks).
+
+### Phase 5 — Tests and documentation
+
+**Status: Complete**
+
+- Updated `README.md` with the LangGraph flow, setup and mock/live commands, evaluation instructions, explicitly unfilled live-result fields, and synthetic-data/mock-mode limitations.
+- Updated architecture, security, and testing documentation; added `docs/FAILURE_REPORT_TEMPLATE.md` for evidence-based failure analysis.
+- Added configurable `REFUND_AS_OF_DATE` and a pinned `FLOWPILOT_EVAL_REFERENCE_DATE` for repeatable refund-window evaluation. The evaluation runner restores the process refund-date setting after completion.
+- Gated live agent API requests on both an explicit request `mode: "live"`, `LLM_MODE=live`, and `OPENAI_API_KEY`. Added regression coverage; evaluation CLI supports explicit `--live` authorization.
+- Final validation: `coverage run -m unittest discover -v` — **283 tests passed**; coverage — **76%** (65% threshold passed); `ruff check .` — passed; `python scripts/check_secrets.py` — passed; classifier CLI — **25/25 passed**.
+- Final mock agent evaluation: **97 cases**, **100% category accuracy**, **0 reason-coded failures**, **0 prompt/completion tokens**, and **$0 mock cost**. Measured p50/p95 latency: **20.332 / 180.732 ms**. These measurements describe the deterministic mock evaluation only, not real-world model performance.
+- `git diff --check` passed. No live OpenAI request was made.
+
+**Remaining manual work:** provide `OPENAI_API_KEY` only when intentionally running a live request; authorize and run a small live evaluation; record observed failures and before/after measurements using `docs/FAILURE_REPORT_TEMPLATE.md`. Hosted CI and live-provider behavior remain unverified.
+
+## Final status
+
+Phases 1–5 of the requested agent upgrade are implemented and locally validated. Existing workflow and approval behavior remains available. The project is a synthetic-data demo, not a production support service. Live OpenAI behavior and hosted CI still require user-side verification.

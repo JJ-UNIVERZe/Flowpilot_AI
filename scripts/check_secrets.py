@@ -32,7 +32,8 @@ def _git(*arguments: str) -> subprocess.CompletedProcess[str]:
         ["git", "-C", str(ROOT), *arguments],
         capture_output=True,
         check=False,
-        text=True,
+        encoding="utf-8",
+        errors="replace",
     )
 
 

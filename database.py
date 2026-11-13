@@ -49,6 +49,12 @@ SAMPLE_ORDERS = [
     ("ORD6842", "Casey Fictional", "Mechanical Keyboard", "Shipped", "Failed",
      "2026-11-12", "No Refund Requested", 0.00, "Visa ending 3319",
      "Payment Failed"),
+    ("ORD7391", "Fictional Example", "Fictional Desk Organizer", "Delivered", "Paid",
+     "2026-11-01", "No Refund Requested", 0.00, "Visa ending 1111",
+     "Payment Successful"),
+    ("ORD8200", "Older Fictional", "Fictional Storage Box", "Delivered", "Paid",
+     "2026-06-01", "No Refund Requested", 0.00, "Visa ending 2222",
+     "Payment Successful"),
 ]
 
 # Allowed values for an approval decision. The same list is enforced by a
@@ -91,7 +97,35 @@ NEW_COLUMNS = [
     ("refund_amount", "REAL NOT NULL DEFAULT 0.0"),
     ("payment_method", "TEXT NOT NULL DEFAULT 'Unknown'"),
     ("transaction_status", "TEXT NOT NULL DEFAULT 'Unknown'"),
+    ("customer_id", "TEXT"),
+    ("items", "TEXT"),
+    ("amount", "REAL"),
+    ("order_date", "TEXT"),
 ]
+
+AGENT_ORDER_SEEDS = (
+    ("ORD1042", "CUST1001", '[{"name":"Wireless Headphones","category":"electronics"}]',
+     129.99, "2026-10-25"),
+    ("ORD2050", "CUST1002", '[{"name":"Desk Lamp","category":"home"}]',
+     49.99, "2026-11-01"),
+    ("ORD3187", "CUST1003", '[{"name":"Coffee Maker","category":"home"}]',
+     89.50, "2026-10-10"),
+    ("ORD4261", "CUST1004", '[{"name":"Travel Backpack","category":"accessories"}]',
+     120.00, "2026-10-01"),
+    ("ORD5734", "CUST1005", '[{"name":"Bluetooth Speaker","category":"electronics"}]',
+     64.99, "2026-11-04"),
+    ("ORD6842", "CUST1006", '[{"name":"Mechanical Keyboard","category":"electronics"}]',
+     99.00, "2026-11-05"),
+    ("ORD7391", "CUST1007", '[{"name":"Fictional Desk Organizer","category":"home"}]',
+     75.00, "2026-10-20"),
+    ("ORD8200", "CUST1008", '[{"name":"Fictional Storage Box","category":"home"}]',
+     45.00, "2026-05-25"),
+)
+REFUND_SEEDS = (
+    ("ORD2050", "CUST1002", "Requested", 49.99, "Fictional request is under review."),
+    ("ORD3187", "CUST1003", "Processing", 89.50, "Fictional refund is processing."),
+    ("ORD4261", "CUST1004", "Completed", 120.00, "Fictional refund completed."),
+)
 
 
 def _migrate_schema(connection: sqlite3.Connection) -> None:
@@ -113,6 +147,23 @@ def _ensure_approval_audit_integrity(connection: sqlite3.Connection) -> None:
     connection.execute(APPROVAL_TABLE_SQL)
     connection.execute(APPROVAL_NO_UPDATE_TRIGGER_SQL)
     connection.execute(APPROVAL_NO_DELETE_TRIGGER_SQL)
+
+
+def _ensure_run_metrics_approval_wait_column(
+    connection: sqlite3.Connection,
+) -> None:
+    """Add the approval wait metric to databases created by older versions."""
+    columns = {
+        row[1] for row in connection.execute("PRAGMA table_info(run_metrics)")
+    }
+    if "approval_wait_ms" not in columns:
+        connection.execute(
+            """
+            ALTER TABLE run_metrics
+            ADD COLUMN approval_wait_ms REAL NOT NULL DEFAULT 0
+                CHECK (approval_wait_ms >= 0)
+            """
+        )
 
 
 def create_database() -> None:
@@ -141,6 +192,56 @@ def create_database() -> None:
             # first six columns, so add the refund/payment columns in place.
             _migrate_schema(connection)
 
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS refunds (
+                    refund_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    order_id TEXT NOT NULL UNIQUE,
+                    customer_id TEXT NOT NULL,
+                    status TEXT NOT NULL
+                        CHECK (status IN ('Requested', 'Processing', 'Completed', 'Rejected')),
+                    amount REAL NOT NULL CHECK (amount >= 0),
+                    reason TEXT NOT NULL,
+                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (order_id) REFERENCES orders(order_id)
+                )
+                """
+            )
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS tool_call_logs (
+                    tool_call_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    tool_name TEXT NOT NULL,
+                    arguments_json TEXT NOT NULL,
+                    result_status TEXT NOT NULL,
+                    duration_ms REAL NOT NULL CHECK (duration_ms >= 0),
+                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS run_metrics (
+                    run_id TEXT PRIMARY KEY,
+                    mode TEXT NOT NULL CHECK (mode IN ('mock', 'live')),
+                    model_name TEXT NOT NULL,
+                    total_latency_ms REAL NOT NULL CHECK (total_latency_ms >= 0),
+                    approval_wait_ms REAL NOT NULL DEFAULT 0
+                        CHECK (approval_wait_ms >= 0),
+                    node_latencies_json TEXT NOT NULL,
+                    llm_latency_ms REAL NOT NULL CHECK (llm_latency_ms >= 0),
+                    prompt_tokens INTEGER NOT NULL CHECK (prompt_tokens >= 0),
+                    completion_tokens INTEGER NOT NULL CHECK (completion_tokens >= 0),
+                    tool_call_count INTEGER NOT NULL CHECK (tool_call_count >= 0),
+                    estimated_cost_usd REAL CHECK (
+                        estimated_cost_usd IS NULL OR estimated_cost_usd >= 0
+                    ),
+                    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
+            _ensure_run_metrics_approval_wait_column(connection)
+
             # Stage 6 (approval): add the audit table to new and existing
             # databases. Existing approval rows are left untouched.
             _ensure_approval_audit_integrity(connection)
@@ -156,6 +257,26 @@ def create_database() -> None:
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 SAMPLE_ORDERS,
+            )
+            connection.executemany(
+                """
+                UPDATE orders
+                SET customer_id = ?, items = ?, amount = ?, order_date = ?
+                WHERE order_id = ? AND customer_id IS NULL
+                """,
+                [
+                    (customer_id, items, amount, order_date, order_id)
+                    for order_id, customer_id, items, amount, order_date
+                    in AGENT_ORDER_SEEDS
+                ],
+            )
+            connection.executemany(
+                """
+                INSERT OR IGNORE INTO refunds
+                    (order_id, customer_id, status, amount, reason)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                REFUND_SEEDS,
             )
 
             # Seed rows only when absent. Existing order, refund, and payment

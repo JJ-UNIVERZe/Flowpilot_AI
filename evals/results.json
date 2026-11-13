@@ -1,0 +1,141 @@
+{
+  "timestamp_utc": "2026-11-12T04:48:43.643191Z",
+  "git_commit": "d66e035",
+  "mode": "template",
+  "case_count": 86,
+  "metrics": {
+    "classification_accuracy": 1.0,
+    "order_id_extraction_accuracy": 1.0,
+    "outcome_accuracy": 1.0,
+    "safety_pass_rate": 1.0,
+    "policy_retrieval_accuracy": 1.0,
+    "policy_retrieval_cases": 15,
+    "mean_processing_time_ms": 23.128,
+    "p95_processing_time_ms": 39.883,
+    "accuracy_per_tag": {
+      "ambiguous": {
+        "count": 9,
+        "classification_accuracy": 1.0
+      },
+      "clear": {
+        "count": 35,
+        "classification_accuracy": 1.0
+      },
+      "edge": {
+        "count": 16,
+        "classification_accuracy": 1.0
+      },
+      "injection": {
+        "count": 4,
+        "classification_accuracy": 1.0
+      },
+      "known_limitation": {
+        "count": 3,
+        "classification_accuracy": 1.0
+      },
+      "malformed_id": {
+        "count": 4,
+        "classification_accuracy": 1.0
+      },
+      "missing_id": {
+        "count": 10,
+        "classification_accuracy": 1.0
+      },
+      "nonexistent_order": {
+        "count": 6,
+        "classification_accuracy": 1.0
+      },
+      "policy": {
+        "count": 15,
+        "classification_accuracy": 1.0
+      },
+      "typo": {
+        "count": 3,
+        "classification_accuracy": 1.0
+      }
+    },
+    "confusion_matrix": {
+      "Address Change": {
+        "Address Change": 5,
+        "Cancellation": 0,
+        "Damaged Item": 0,
+        "Delivery Issue": 0,
+        "General Inquiry": 0,
+        "Payment Issue": 0,
+        "Refund Inquiry": 0,
+        "Unknown Request": 0
+      },
+      "Cancellation": {
+        "Address Change": 0,
+        "Cancellation": 4,
+        "Damaged Item": 0,
+        "Delivery Issue": 0,
+        "General Inquiry": 0,
+        "Payment Issue": 0,
+        "Refund Inquiry": 0,
+        "Unknown Request": 0
+      },
+      "Damaged Item": {
+        "Address Change": 0,
+        "Cancellation": 0,
+        "Damaged Item": 4,
+        "Delivery Issue": 0,
+        "General Inquiry": 0,
+        "Payment Issue": 0,
+        "Refund Inquiry": 0,
+        "Unknown Request": 0
+      },
+      "Delivery Issue": {
+        "Address Change": 0,
+        "Cancellation": 0,
+        "Damaged Item": 0,
+        "Delivery Issue": 16,
+        "General Inquiry": 0,
+        "Payment Issue": 0,
+        "Refund Inquiry": 0,
+        "Unknown Request": 0
+      },
+      "General Inquiry": {
+        "Address Change": 0,
+        "Cancellation": 0,
+        "Damaged Item": 0,
+        "Delivery Issue": 0,
+        "General Inquiry": 20,
+        "Payment Issue": 0,
+        "Refund Inquiry": 0,
+        "Unknown Request": 0
+      },
+      "Payment Issue": {
+        "Address Change": 0,
+        "Cancellation": 0,
+        "Damaged Item": 0,
+        "Delivery Issue": 0,
+        "General Inquiry": 0,
+        "Payment Issue": 9,
+        "Refund Inquiry": 0,
+        "Unknown Request": 0
+      },
+      "Refund Inquiry": {
+        "Address Change": 0,
+        "Cancellation": 0,
+        "Damaged Item": 0,
+        "Delivery Issue": 0,
+        "General Inquiry": 0,
+        "Payment Issue": 0,
+        "Refund Inquiry": 19,
+        "Unknown Request": 0
+      },
+      "Unknown Request": {
+        "Address Change": 0,
+        "Cancellation": 0,
+        "Damaged Item": 0,
+        "Delivery Issue": 0,
+        "General Inquiry": 0,
+        "Payment Issue": 0,
+        "Refund Inquiry": 0,
+        "Unknown Request": 9
+      }
+    }
+  },
+  "failures": []
+}

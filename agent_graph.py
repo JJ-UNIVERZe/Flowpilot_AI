@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import time
 from typing import Any, TypedDict
@@ -13,6 +14,7 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.types import interrupt
 
 import flowpilot
+import metrics as run_metrics
 import tools
 from llm_response_generator import (
     LLMProvider,
@@ -159,6 +161,17 @@ def _agent_node(provider: LLMProvider | None):
                 if not isinstance(response, dict):
                     errors.append("The LLM provider did not return a usable response.")
                     break
+                usage = response.get("usage", {})
+                if isinstance(usage, dict):
+                    metrics["prompt_tokens"] += max(
+                        0, int(usage.get("prompt_tokens", 0) or 0)
+                    )
+                    metrics["completion_tokens"] += max(
+                        0, int(usage.get("completion_tokens", 0) or 0)
+                    )
+                metrics["model_name"] = str(
+                    response.get("model", metrics.get("model_name", "unknown"))
+                )
                 calls = response.get("tool_calls", [])
                 if not isinstance(calls, list) or not calls:
                     content = response.get("content")
@@ -232,6 +245,12 @@ def _agent_node(provider: LLMProvider | None):
                 draft = SAFE_FALLBACK
                 errors.append("The agent could not produce a draft; used the safe fallback.")
         metrics["llm_latency_ms"] = round(float(metrics["llm_latency_ms"]), 3)
+        metrics["estimated_cost_usd"] = run_metrics.estimate_cost_usd(
+            int(metrics["prompt_tokens"]),
+            int(metrics["completion_tokens"]),
+            str(metrics.get("model_name", "unknown")),
+            str(metrics.get("mode", "mock")),
+        )
         metrics["node_latency_ms"] = dict(metrics.get("node_latency_ms", {}))
         metrics = _record_node_time({"metrics": metrics}, "agent", started)
         return {
@@ -386,7 +405,9 @@ def build_agent_graph(
     return graph.compile(checkpointer=checkpointer or MemorySaver())
 
 
-def initial_state(message: str, customer_id: str, run_id: str) -> AgentState:
+def initial_state(
+    message: str, customer_id: str, run_id: str, mode: str = "mock"
+) -> AgentState:
     """Build validated graph input without altering the existing workflow."""
     return {
         "run_id": run_id,
@@ -398,7 +419,15 @@ def initial_state(message: str, customer_id: str, run_id: str) -> AgentState:
         "approval_status": "Pending",
         "approval_decision": "",
         "validation_flags": [],
-        "metrics": {"node_latency_ms": {}},
+        "metrics": {
+            "node_latency_ms": {},
+            "mode": mode,
+            "model_name": (
+                "mock"
+                if mode == "mock"
+                else os.getenv("OPENAI_MODEL") or "gpt-4o-mini"
+            ),
+        },
         "errors": [],
         "status": "running",
         "can_proceed": False,

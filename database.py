@@ -197,6 +197,25 @@ def create_database() -> None:
                 )
                 """
             )
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS run_metrics (
+                    run_id TEXT PRIMARY KEY,
+                    mode TEXT NOT NULL CHECK (mode IN ('mock', 'live')),
+                    model_name TEXT NOT NULL,
+                    total_latency_ms REAL NOT NULL CHECK (total_latency_ms >= 0),
+                    node_latencies_json TEXT NOT NULL,
+                    llm_latency_ms REAL NOT NULL CHECK (llm_latency_ms >= 0),
+                    prompt_tokens INTEGER NOT NULL CHECK (prompt_tokens >= 0),
+                    completion_tokens INTEGER NOT NULL CHECK (completion_tokens >= 0),
+                    tool_call_count INTEGER NOT NULL CHECK (tool_call_count >= 0),
+                    estimated_cost_usd REAL CHECK (
+                        estimated_cost_usd IS NULL OR estimated_cost_usd >= 0
+                    ),
+                    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
 
             # Stage 6 (approval): add the audit table to new and existing
             # databases. Existing approval rows are left untouched.

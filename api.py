@@ -4,6 +4,7 @@ import hmac
 import json
 import os
 import sqlite3
+import time
 from contextlib import closing
 from pathlib import Path
 from threading import RLock
@@ -19,6 +20,7 @@ import agent_graph
 import database
 import flowpilot
 import knowledge_base
+import metrics as run_metrics
 
 
 app = FastAPI(title="FlowPilot AI", version="1.0")
@@ -135,6 +137,35 @@ def _agent_run_payload(run_id: str, state: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _persist_agent_metrics(
+    run_id: str, run: dict[str, Any], state: dict[str, Any]
+) -> None:
+    metrics_data = dict(state.get("metrics", {}))
+    metrics_data["total_latency_ms"] = round(
+        max(0.0, (time.perf_counter() - run["started_perf_counter"]) * 1000), 3
+    )
+    state["metrics"] = metrics_data
+    model_name = str(metrics_data.get("model_name", "unknown"))
+    try:
+        run_metrics.record_run_metrics(
+            run_id=run_id,
+            metrics=metrics_data,
+            mode=run["mode"],
+            model_name=model_name,
+            total_latency_ms=metrics_data["total_latency_ms"],
+        )
+    except database.DatabaseError as error:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=database.DATABASE_UNAVAILABLE_TEXT,
+        ) from error
+    except ValueError as error:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Agent metrics configuration is invalid.",
+        ) from error
+
+
 def _resume_agent_run(
     run_id: str, run: dict[str, Any], decision: str, draft_reply: str | None = None
 ) -> dict[str, Any]:
@@ -167,6 +198,7 @@ def _resume_agent_run(
         config=config,
     )
     run["state"] = resumed
+    _persist_agent_metrics(run_id, run, resumed)
     return _agent_run_payload(run_id, resumed)
 
 
@@ -196,12 +228,22 @@ def run_agent(request: AgentRunRequest) -> dict[str, Any]:
     run_id = uuid4().hex
     graph = agent_graph.build_agent_graph(provider)
     config = {"configurable": {"thread_id": run_id}}
+    started = time.perf_counter()
     state = graph.invoke(
-        agent_graph.initial_state(request.message, request.customer_id, run_id),
+        agent_graph.initial_state(
+            request.message, request.customer_id, run_id, request.mode
+        ),
         config=config,
     )
+    run = {
+        "graph": graph,
+        "state": state,
+        "mode": request.mode,
+        "started_perf_counter": started,
+    }
     with _agent_runs_lock:
-        agent_runs[run_id] = {"graph": graph, "state": state, "mode": request.mode}
+        agent_runs[run_id] = run
+    _persist_agent_metrics(run_id, run, state)
     return _agent_run_payload(run_id, state)
 
 
@@ -253,6 +295,21 @@ def reject_agent_run(
         if run is None:
             raise HTTPException(status_code=404, detail="Agent run was not found.")
         return _resume_agent_run(run_id, run, "reject")
+
+
+@app.get("/metrics/summary")
+def get_metrics_summary(
+    x_review_api_key: str | None = Header(default=None, alias="X-Review-API-Key"),
+) -> dict[str, Any]:
+    """Return aggregate agent metrics to an authenticated reviewer."""
+    _require_reviewer_key(x_review_api_key)
+    try:
+        return run_metrics.get_metrics_summary()
+    except database.DatabaseError as error:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Agent metrics are unavailable.",
+        ) from error
 
 
 @app.get("/kb/search")

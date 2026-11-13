@@ -14,6 +14,7 @@ from fastapi.testclient import TestClient
 
 import api
 import database
+import metrics as run_metrics
 
 
 class TestHTTPAPI(unittest.TestCase):
@@ -303,6 +304,12 @@ class TestHTTPAPI(unittest.TestCase):
         self.assertEqual(run["approval_status"], "Pending")
         self.assertFalse(run["can_proceed"])
         self.assertEqual(run["tool_results"][0]["result"]["status"], "found")
+        self.assertEqual(run["metrics"]["mode"], "mock")
+        self.assertEqual(run["metrics"]["model_name"], "mock")
+        self.assertEqual(run["metrics"]["prompt_tokens"], 0)
+        self.assertEqual(run["metrics"]["completion_tokens"], 0)
+        self.assertEqual(run["metrics"]["estimated_cost_usd"], 0.0)
+        self.assertGreaterEqual(run["metrics"]["total_latency_ms"], 0)
 
     def test_agent_run_requires_customer_id_and_live_key(self):
         missing_customer = self.client.post(
@@ -379,3 +386,28 @@ class TestHTTPAPI(unittest.TestCase):
         self.assertEqual(approved.status_code, 200)
         self.assertEqual(approved.json()["approval_status"], "Approved")
         self.assertTrue(approved.json()["can_proceed"])
+
+    def test_metrics_summary_requires_key_and_reports_persisted_runs(self):
+        denied = self.client.get("/metrics/summary")
+        self.assertEqual(denied.status_code, 401)
+        run_metrics.record_run_metrics(
+            "metrics-test",
+            {
+                "node_latency_ms": {"agent": 2.0},
+                "llm_latency_ms": 1.0,
+                "prompt_tokens": 0,
+                "completion_tokens": 0,
+                "tool_call_count": 1,
+            },
+            "mock",
+            "mock",
+            12.0,
+        )
+        response = self.client.get(
+            "/metrics/summary",
+            headers={"X-Review-API-Key": "test-review-key"},
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["count"], 1)
+        self.assertEqual(response.json()["p95_latency_ms"], 12.0)
+        self.assertEqual(response.json()["total_cost_usd"], 0.0)

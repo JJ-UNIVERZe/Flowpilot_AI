@@ -318,6 +318,32 @@ def _render_review_stats(stats: dict[str, Any]) -> None:
     )
 
 
+def _render_agent_metrics(summary: dict[str, Any]) -> None:
+    fields = (
+        ("count", "Agent runs", ".0f", ""),
+        ("avg_latency_ms", "Average latency", ".2f", " ms"),
+        ("p50_latency_ms", "p50 latency", ".2f", " ms"),
+        ("p95_latency_ms", "p95 latency", ".2f", " ms"),
+        ("total_tokens", "Total tokens", ".0f", ""),
+        ("total_cost_usd", "Estimated cost", ".6f", " USD"),
+    )
+    for offset in range(0, len(fields), 3):
+        columns = st.columns(3)
+        for column, (key, label, value_format, suffix) in zip(
+            columns, fields[offset : offset + 3]
+        ):
+            value = summary.get(key)
+            if not isinstance(value, (int, float)):
+                st.error("Agent metrics have an unexpected format.")
+                return
+            with column:
+                st.metric(label, f"{value:{value_format}}{suffix}")
+    st.caption(
+        f"Cost estimates available for {summary.get('cost_estimates_available', 0)} "
+        "runs. Live cost requires configured per-million-token prices."
+    )
+
+
 def main() -> None:
     st.title("FlowPilot AI")
     st.caption("Local support-response demo. Responses are never sent to customers.")
@@ -327,8 +353,8 @@ def main() -> None:
         st.caption(f"API: {API_BASE_URL}")
         reviewer_key = st.text_input("Reviewer key", type="password")
 
-    workflow_tab, agent_tab, evaluation_tab, review_stats_tab = st.tabs(
-        ["Workflow", "Agent review", "Evaluation", "Review stats"]
+    workflow_tab, agent_tab, evaluation_tab, review_stats_tab, metrics_tab = st.tabs(
+        ["Workflow", "Agent review", "Evaluation", "Review stats", "Agent metrics"]
     )
     with workflow_tab:
         mode = st.selectbox("Response mode", ("template", "mock", "openai"))
@@ -470,6 +496,19 @@ def main() -> None:
                 st.error("Review statistics have an unexpected format.")
             else:
                 _render_review_stats(review_stats)
+
+    with metrics_tab:
+        try:
+            metrics_summary = _request_api(
+                "GET", "/metrics/summary", headers=dashboard_headers
+            )
+        except APIRequestError as error:
+            st.error(_friendly_api_error(error, "agent metrics"))
+        else:
+            if not isinstance(metrics_summary, dict):
+                st.error("Agent metrics have an unexpected format.")
+            else:
+                _render_agent_metrics(metrics_summary)
 
 
 if __name__ == "__main__":

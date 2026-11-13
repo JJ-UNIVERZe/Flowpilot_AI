@@ -113,7 +113,16 @@ class LLMProvider(ABC):
             [{"role": str(message["role"]), "content": str(message.get("content", ""))}
              for message in messages]
         )
-        return {"content": content, "tool_calls": []} if content else None
+        return (
+            {
+                "content": content,
+                "tool_calls": [],
+                "usage": {"prompt_tokens": 0, "completion_tokens": 0},
+                "model": "provider",
+            }
+            if content
+            else None
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -150,6 +159,10 @@ class MockLLM(LLMProvider):
             return {
                 "content": response.get("content"),
                 "tool_calls": response.get("tool_calls", []),
+                "usage": response.get(
+                    "usage", {"prompt_tokens": 0, "completion_tokens": 0}
+                ),
+                "model": response.get("model", "mock"),
             }
         user_content = "\n".join(
             str(message.get("content", ""))
@@ -203,12 +216,23 @@ class MockLLM(LLMProvider):
                         },
                     }
                 ],
+                "usage": {"prompt_tokens": 0, "completion_tokens": 0},
+                "model": "mock",
             }
         content = self.generate_messages(
             [{"role": str(message["role"]), "content": str(message.get("content", ""))}
              for message in messages]
         )
-        return {"content": content, "tool_calls": []} if content else None
+        return (
+            {
+                "content": content,
+                "tool_calls": [],
+                "usage": {"prompt_tokens": 0, "completion_tokens": 0},
+                "model": "mock",
+            }
+            if content
+            else None
+        )
 
     def generate(
         self,
@@ -422,7 +446,18 @@ class OpenAIProvider(LLMProvider):
                 }
                 for call in raw_calls
             ]
-            return {"content": getattr(message, "content", None), "tool_calls": calls}
+            usage = getattr(response, "usage", None)
+            return {
+                "content": getattr(message, "content", None),
+                "tool_calls": calls,
+                "usage": {
+                    "prompt_tokens": int(getattr(usage, "prompt_tokens", 0) or 0),
+                    "completion_tokens": int(
+                        getattr(usage, "completion_tokens", 0) or 0
+                    ),
+                },
+                "model": str(getattr(response, "model", self._model)),
+            }
         except Exception as exc:
             classification = _classify_openai_error(exc)
             logger.debug("OpenAIProvider.generate_with_tools() failed: %s", classification)

@@ -16,6 +16,19 @@ class TestStreamlitAPIClient(unittest.TestCase):
         if url.endswith("/evaluation"):
             status_code = evaluation_status
             payload = self._evaluation_payload()
+        elif url.endswith("/metrics/summary"):
+            status_code = 200
+            payload = {
+                "count": 1,
+                "avg_latency_ms": 10.0,
+                "p50_latency_ms": 10.0,
+                "p95_latency_ms": 10.0,
+                "total_prompt_tokens": 0,
+                "total_completion_tokens": 0,
+                "total_tokens": 0,
+                "total_cost_usd": 0.0,
+                "cost_estimates_available": 1,
+            }
         else:
             status_code = stats_status
             payload = {

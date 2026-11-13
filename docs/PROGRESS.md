@@ -214,3 +214,14 @@ The requested extension should therefore add isolated tool-calling and agent-run
 - Validation: `python -m unittest discover -v` — **272 passed**; `ruff check .` — passed; `python scripts/check_secrets.py` — passed. No live OpenAI request was made.
 
 **Remaining:** Phases 3–5 (persisted metrics and summary, expanded automated evaluation/CI threshold, final tests and documentation).
+
+### Phase 3 — Latency and token-cost tracking
+
+**Status: Complete**
+
+- Added `metrics.py` and an additive SQLite `run_metrics` table with run mode/model, total and per-node latency, LLM latency, token counts, tool-call count, and estimated USD cost.
+- Agent provider responses now expose token usage/model metadata. Mock mode records zero tokens and zero cost; live cost remains unavailable unless both per-million-token prices are configured via environment variables.
+- Added authenticated `GET /metrics/summary` with count, average, p50/p95 latency, token totals, and priced-run count; added a Streamlit Agent Metrics dashboard page.
+- Validation: `python -m unittest discover -v` — **276 passed**; `ruff check .` — passed; `python scripts/check_secrets.py` — passed. No live OpenAI request was made.
+
+**Remaining:** Phases 4–5 (60+ agent evaluation cases, reason-coded evaluators, mock/live evaluation CLI, comparison and CI gate, final tests/docs).

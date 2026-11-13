@@ -9,6 +9,22 @@ permissions:
   contents: read
 
 jobs:
+  agent-evaluation:
+    runs-on: ubuntu-latest
+    env:
+      FLOWPILOT_EVAL_MIN_ACCURACY: ${{ vars.FLOWPILOT_EVAL_MIN_ACCURACY || '0.80' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
+      - name: Install dependencies
+        run: python -m pip install -r requirements-dev.txt
+      - name: Run offline mock agent evaluation
+        run: python run_eval.py --mode mock --fail-under "$FLOWPILOT_EVAL_MIN_ACCURACY"
+
   test:
     runs-on: ubuntu-latest
     strategy:

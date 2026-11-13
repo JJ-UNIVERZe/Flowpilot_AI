@@ -52,6 +52,9 @@ SAMPLE_ORDERS = [
     ("ORD7391", "Fictional Example", "Fictional Desk Organizer", "Delivered", "Paid",
      "2026-11-01", "No Refund Requested", 0.00, "Visa ending 1111",
      "Payment Successful"),
+    ("ORD8200", "Older Fictional", "Fictional Storage Box", "Delivered", "Paid",
+     "2026-06-01", "No Refund Requested", 0.00, "Visa ending 2222",
+     "Payment Successful"),
 ]
 
 # Allowed values for an approval decision. The same list is enforced by a
@@ -115,6 +118,8 @@ AGENT_ORDER_SEEDS = (
      99.00, "2026-11-05"),
     ("ORD7391", "CUST1007", '[{"name":"Fictional Desk Organizer","category":"home"}]',
      75.00, "2026-10-20"),
+    ("ORD8200", "CUST1008", '[{"name":"Fictional Storage Box","category":"home"}]',
+     45.00, "2026-05-25"),
 )
 REFUND_SEEDS = (
     ("ORD2050", "CUST1002", "Requested", 49.99, "Fictional request is under review."),

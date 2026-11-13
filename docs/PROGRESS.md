@@ -225,3 +225,15 @@ The requested extension should therefore add isolated tool-calling and agent-run
 - Validation: `python -m unittest discover -v` — **276 passed**; `ruff check .` — passed; `python scripts/check_secrets.py` — passed. No live OpenAI request was made.
 
 **Remaining:** Phases 4–5 (60+ agent evaluation cases, reason-coded evaluators, mock/live evaluation CLI, comparison and CI gate, final tests/docs).
+
+### Phase 4 — Automated agent evaluation
+
+**Status: Complete**
+
+- Added `evals/agent_cases.jsonl` with 97 cases based on the existing labeled set plus explicit nonexistent-order, cross-customer, expired/already-refunded, missing-ID, vague, Malayalam-style transliteration, injection, discount, and long-input cases.
+- Added evaluators for all nine requested reason codes and `run_eval.py` with offline mock default, gated live mode, a five-case default live limit, configurable latency/accuracy thresholds, JSON/Markdown output, and previous-report comparison.
+- Added a CI mock-evaluation job with repository-configurable `FLOWPILOT_EVAL_MIN_ACCURACY` (default 0.80). Added a fictional expired-window fixture for policy evaluation.
+- Executed the mock evaluation: **97 cases**, **100% category accuracy**, **0 reason-coded failures**, **0 tokens**, **$0 mock cost**. Measured latency and per-category results are in `reports/eval_report.json` and `.md`; these are mock-only results, not real-world accuracy.
+- Validation: `python -m unittest discover -v` — **282 passed**; `ruff check .` — passed; `python scripts/check_secrets.py` — passed; classifier CLI — **25/25 passed**. No live OpenAI request was made.
+
+**Remaining:** Phase 5 (README architecture/setup/evaluation limitations, failure-report template, final regression checks).

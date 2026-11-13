@@ -50,16 +50,19 @@ class MetricsTests(unittest.TestCase):
             "completion_tokens": 5,
             "tool_call_count": 1,
         }
-        for index, latency in enumerate((10.0, 20.0, 30.0)):
+        for index, (latency, approval_wait) in enumerate(
+            zip((10.0, 20.0, 30.0), (100.0, 200.0, 300.0))
+        ):
             metrics.record_run_metrics(
-                f"run-{index}", base, "mock", "mock", latency
+                f"run-{index}", base, "mock", "mock", latency, approval_wait
             )
-        metrics.record_run_metrics("run-0", base, "mock", "mock", 10.0)
+        metrics.record_run_metrics("run-0", base, "mock", "mock", 10.0, 100.0)
         summary = metrics.get_metrics_summary()
         self.assertEqual(summary["count"], 3)
         self.assertEqual(summary["avg_latency_ms"], 20.0)
         self.assertEqual(summary["p50_latency_ms"], 20.0)
         self.assertEqual(summary["p95_latency_ms"], 30.0)
+        self.assertEqual(summary["avg_approval_wait_ms"], 200.0)
         self.assertEqual(summary["total_tokens"], 45)
         self.assertEqual(summary["total_cost_usd"], 0.0)
         with closing(sqlite3.connect(database.DATABASE_PATH)) as connection:
@@ -67,6 +70,28 @@ class MetricsTests(unittest.TestCase):
                 "SELECT node_latencies_json FROM run_metrics WHERE run_id = 'run-0'"
             ).fetchone()
         self.assertIn('"agent": 2.0', row[0])
+
+    def test_existing_metrics_database_migrates_approval_wait_column_once(self) -> None:
+        with closing(sqlite3.connect(database.DATABASE_PATH)) as connection, connection:
+            connection.execute("ALTER TABLE run_metrics DROP COLUMN approval_wait_ms")
+            connection.execute(
+                """
+                INSERT INTO run_metrics (
+                    run_id, mode, model_name, total_latency_ms,
+                    node_latencies_json, llm_latency_ms, prompt_tokens,
+                    completion_tokens, tool_call_count, estimated_cost_usd
+                ) VALUES ('legacy-run', 'mock', 'mock', 12, '{}', 0, 0, 0, 0, 0)
+                """
+            )
+
+        database.create_database()
+        database.create_database()
+        with closing(sqlite3.connect(database.DATABASE_PATH)) as connection:
+            row = connection.execute(
+                "SELECT total_latency_ms, approval_wait_ms FROM run_metrics "
+                "WHERE run_id = 'legacy-run'"
+            ).fetchone()
+        self.assertEqual(row, (12.0, 0.0))
 
     def test_invalid_prices_and_negative_metrics_are_rejected(self) -> None:
         with mock.patch.dict(

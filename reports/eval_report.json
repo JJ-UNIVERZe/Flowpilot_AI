@@ -1,5 +1,5 @@
 {
-  "timestamp_utc": "2026-11-13T04:58:29.116518Z",
+  "timestamp_utc": "2026-11-13T06:44:34.796759Z",
   "mode": "mock",
   "slow_threshold_ms": 5000.0,
   "case_count": 97,
@@ -48,8 +48,8 @@
     }
   },
   "failures": [],
-  "latency_p50_ms": 20.332,
-  "latency_p95_ms": 180.732,
+  "latency_p50_ms": 12.304,
+  "latency_p95_ms": 71.584,
   "prompt_tokens": 0,
   "completion_tokens": 0,
   "total_tokens": 0,

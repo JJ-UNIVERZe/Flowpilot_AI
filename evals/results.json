@@ -1,6 +1,6 @@
 {
-  "timestamp_utc": "2026-11-12T04:34:48.937134Z",
-  "git_commit": "9d18912",
+  "timestamp_utc": "2026-11-12T04:48:43.643191Z",
+  "git_commit": "d66e035",
   "mode": "template",
   "case_count": 86,
   "metrics": {
@@ -10,8 +10,8 @@
     "safety_pass_rate": 1.0,
     "policy_retrieval_accuracy": 1.0,
     "policy_retrieval_cases": 15,
-    "mean_processing_time_ms": 31.614,
-    "p95_processing_time_ms": 23.895,
+    "mean_processing_time_ms": 23.128,
+    "p95_processing_time_ms": 39.883,
     "accuracy_per_tag": {
       "ambiguous": {
         "count": 9,

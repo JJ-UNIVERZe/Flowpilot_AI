@@ -4,10 +4,10 @@ import hmac
 import json
 import os
 import sqlite3
-import time
 from contextlib import closing
 from pathlib import Path
 from threading import RLock
+from time import perf_counter
 from typing import Any, Literal
 from uuid import uuid4
 
@@ -146,9 +146,12 @@ def _persist_agent_metrics(
     run_id: str, run: dict[str, Any], state: dict[str, Any]
 ) -> None:
     metrics_data = dict(state.get("metrics", {}))
-    metrics_data["total_latency_ms"] = round(
-        max(0.0, (time.perf_counter() - run["started_perf_counter"]) * 1000), 3
-    )
+    metrics_data["total_latency_ms"] = round(max(0.0, run["active_latency_ms"]), 3)
+    approval_wait_ms = run["approval_wait_ms"]
+    approval_wait_started = run["approval_wait_started_perf_counter"]
+    if approval_wait_started is not None:
+        approval_wait_ms += max(0.0, (perf_counter() - approval_wait_started) * 1000)
+    metrics_data["approval_wait_ms"] = round(max(0.0, approval_wait_ms), 3)
     state["metrics"] = metrics_data
     model_name = str(metrics_data.get("model_name", "unknown"))
     try:
@@ -158,6 +161,7 @@ def _persist_agent_metrics(
             mode=run["mode"],
             model_name=model_name,
             total_latency_ms=metrics_data["total_latency_ms"],
+            approval_wait_ms=metrics_data["approval_wait_ms"],
         )
     except database.DatabaseError as error:
         raise HTTPException(
@@ -180,6 +184,7 @@ def _resume_agent_run(
             status_code=status.HTTP_409_CONFLICT,
             detail="Agent run is not waiting for a reviewer decision.",
         )
+    resume_started = perf_counter()
     if decision in {"approve", "reject"}:
         try:
             approval.record_approval(
@@ -201,6 +206,16 @@ def _resume_agent_run(
             }
         ),
         config=config,
+    )
+    segment_finished = perf_counter()
+    waiting_started = run["approval_wait_started_perf_counter"]
+    if waiting_started is not None:
+        run["approval_wait_ms"] += max(0.0, (resume_started - waiting_started) * 1000)
+    run["approval_wait_started_perf_counter"] = (
+        segment_finished if resumed.get("__interrupt__") else None
+    )
+    run["active_latency_ms"] += max(
+        0.0, (segment_finished - resume_started) * 1000
     )
     run["state"] = resumed
     _persist_agent_metrics(run_id, run, resumed)
@@ -233,18 +248,23 @@ def run_agent(request: AgentRunRequest) -> dict[str, Any]:
     run_id = uuid4().hex
     graph = agent_graph.build_agent_graph(provider)
     config = {"configurable": {"thread_id": run_id}}
-    started = time.perf_counter()
+    started = perf_counter()
     state = graph.invoke(
         agent_graph.initial_state(
             request.message, request.customer_id, run_id, request.mode
         ),
         config=config,
     )
+    segment_finished = perf_counter()
     run = {
         "graph": graph,
         "state": state,
         "mode": request.mode,
-        "started_perf_counter": started,
+        "active_latency_ms": max(0.0, (segment_finished - started) * 1000),
+        "approval_wait_ms": 0.0,
+        "approval_wait_started_perf_counter": (
+            segment_finished if state.get("__interrupt__") else None
+        ),
     }
     with _agent_runs_lock:
         agent_runs[run_id] = run
@@ -263,6 +283,8 @@ def get_agent_run(
         run = agent_runs.get(run_id)
         if run is None:
             raise HTTPException(status_code=404, detail="Agent run was not found.")
+        if run["state"].get("__interrupt__"):
+            _persist_agent_metrics(run_id, run, run["state"])
         return _agent_run_payload(run_id, run["state"])
 
 
@@ -309,6 +331,10 @@ def get_metrics_summary(
     """Return aggregate agent metrics to an authenticated reviewer."""
     _require_reviewer_key(x_review_api_key)
     try:
+        with _agent_runs_lock:
+            for run_id, run in agent_runs.items():
+                if run["state"].get("__interrupt__"):
+                    _persist_agent_metrics(run_id, run, run["state"])
         return run_metrics.get_metrics_summary()
     except database.DatabaseError as error:
         raise HTTPException(

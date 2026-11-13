@@ -6,8 +6,8 @@
 |---|---|
 | Mode | `template` |
 | Cases | 86 |
-| Evaluated (UTC) | 2026-11-12T04:34:48.937134Z |
-| Git commit | `9d18912` |
+| Evaluated (UTC) | 2026-11-12T04:48:43.643191Z |
+| Git commit | `d66e035` |
 
 Measured on 86 synthetic cases in template/mock mode. Not live OpenAI. Not production data.
 
@@ -20,8 +20,8 @@ Measured on 86 synthetic cases in template/mock mode. Not live OpenAI. Not produ
 | Outcome accuracy | 100.0% |
 | Safety pass rate | 100.0% |
 | Policy retrieval accuracy | 100.0% (15 labelled cases) |
-| Mean processing time | 31.614 ms |
-| p95 processing time | 23.895 ms |
+| Mean processing time | 23.128 ms |
+| p95 processing time | 39.883 ms |
 
 ## Classification accuracy per tag
 

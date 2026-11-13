@@ -149,6 +149,23 @@ def _ensure_approval_audit_integrity(connection: sqlite3.Connection) -> None:
     connection.execute(APPROVAL_NO_DELETE_TRIGGER_SQL)
 
 
+def _ensure_run_metrics_approval_wait_column(
+    connection: sqlite3.Connection,
+) -> None:
+    """Add the approval wait metric to databases created by older versions."""
+    columns = {
+        row[1] for row in connection.execute("PRAGMA table_info(run_metrics)")
+    }
+    if "approval_wait_ms" not in columns:
+        connection.execute(
+            """
+            ALTER TABLE run_metrics
+            ADD COLUMN approval_wait_ms REAL NOT NULL DEFAULT 0
+                CHECK (approval_wait_ms >= 0)
+            """
+        )
+
+
 def create_database() -> None:
     """Create the orders table, migrate older databases, and add sample data."""
     try:
@@ -209,6 +226,8 @@ def create_database() -> None:
                     mode TEXT NOT NULL CHECK (mode IN ('mock', 'live')),
                     model_name TEXT NOT NULL,
                     total_latency_ms REAL NOT NULL CHECK (total_latency_ms >= 0),
+                    approval_wait_ms REAL NOT NULL DEFAULT 0
+                        CHECK (approval_wait_ms >= 0),
                     node_latencies_json TEXT NOT NULL,
                     llm_latency_ms REAL NOT NULL CHECK (llm_latency_ms >= 0),
                     prompt_tokens INTEGER NOT NULL CHECK (prompt_tokens >= 0),
@@ -221,6 +240,7 @@ def create_database() -> None:
                 )
                 """
             )
+            _ensure_run_metrics_approval_wait_column(connection)
 
             # Stage 6 (approval): add the audit table to new and existing
             # databases. Existing approval rows are left untouched.

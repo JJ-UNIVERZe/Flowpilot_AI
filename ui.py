@@ -322,6 +322,7 @@ def _render_agent_metrics(summary: dict[str, Any]) -> None:
     fields = (
         ("count", "Agent runs", ".0f", ""),
         ("avg_latency_ms", "Average latency", ".2f", " ms"),
+        ("avg_approval_wait_ms", "Average approval wait", ".2f", " ms"),
         ("p50_latency_ms", "p50 latency", ".2f", " ms"),
         ("p95_latency_ms", "p95 latency", ".2f", " ms"),
         ("total_tokens", "Total tokens", ".0f", ""),

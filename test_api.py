@@ -311,6 +311,62 @@ class TestHTTPAPI(unittest.TestCase):
         self.assertEqual(run["metrics"]["estimated_cost_usd"], 0.0)
         self.assertGreaterEqual(run["metrics"]["total_latency_ms"], 0)
 
+    def test_agent_metrics_separate_active_time_from_approval_wait(self):
+        headers = {"X-Review-API-Key": "test-review-key"}
+        with mock.patch.object(
+            api,
+            "perf_counter",
+            side_effect=[100.0, 100.053, 100.053, 110.053, 110.080],
+        ):
+            created = self.client.post(
+                "/agent/run",
+                json={
+                    "message": "Where is my order ORD1042?",
+                    "customer_id": "CUST1001",
+                },
+            ).json()
+            approved = self.client.post(
+                f"/agent/runs/{created['run_id']}/approve",
+                json={"action": "approve"},
+                headers=headers,
+            )
+
+        self.assertEqual(approved.status_code, 200)
+        metrics_response = approved.json()["metrics"]
+        self.assertEqual(metrics_response["total_latency_ms"], 80.0)
+        self.assertEqual(metrics_response["approval_wait_ms"], 10000.0)
+        with closing(sqlite3.connect(database.DATABASE_PATH)) as connection:
+            row = connection.execute(
+                "SELECT total_latency_ms, approval_wait_ms FROM run_metrics "
+                "WHERE run_id = ?",
+                (created["run_id"],),
+            ).fetchone()
+        self.assertEqual(row, (80.0, 10000.0))
+
+    def test_pending_run_persists_approval_wait_without_resuming(self):
+        with mock.patch.object(
+            api, "perf_counter", side_effect=[200.0, 200.053, 200.053, 220.053]
+        ):
+            created = self.client.post(
+                "/agent/run",
+                json={
+                    "message": "Where is my order ORD1042?",
+                    "customer_id": "CUST1001",
+                },
+            ).json()
+            response = self.client.get(
+                "/metrics/summary",
+                headers={"X-Review-API-Key": "test-review-key"},
+            )
+
+        self.assertEqual(created["status"], "awaiting_approval")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["avg_latency_ms"], 53.0)
+        self.assertEqual(response.json()["p50_latency_ms"], 53.0)
+        self.assertEqual(response.json()["p95_latency_ms"], 53.0)
+        self.assertEqual(response.json()["avg_approval_wait_ms"], 20000.0)
+        self.assertTrue(api.agent_runs[created["run_id"]]["state"]["__interrupt__"])
+
     def test_agent_run_requires_customer_id_and_live_key(self):
         missing_customer = self.client.post(
             "/agent/run", json={"message": "Where is order ORD1042?"}
@@ -423,4 +479,5 @@ class TestHTTPAPI(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["count"], 1)
         self.assertEqual(response.json()["p95_latency_ms"], 12.0)
+        self.assertEqual(response.json()["avg_approval_wait_ms"], 0.0)
         self.assertEqual(response.json()["total_cost_usd"], 0.0)

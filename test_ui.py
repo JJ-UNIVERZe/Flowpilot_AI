@@ -21,6 +21,7 @@ class TestStreamlitAPIClient(unittest.TestCase):
             payload = {
                 "count": 1,
                 "avg_latency_ms": 10.0,
+                "avg_approval_wait_ms": 25.0,
                 "p50_latency_ms": 10.0,
                 "p95_latency_ms": 10.0,
                 "total_prompt_tokens": 0,
@@ -115,6 +116,9 @@ class TestStreamlitAPIClient(unittest.TestCase):
 
         self.assertFalse(app.exception)
         self.assertGreaterEqual(len(app.metric), 7)
+        self.assertTrue(
+            any(metric.label == "Average approval wait" for metric in app.metric)
+        )
         self.assertEqual(len(app.get("vega_lite_chart")), 3)
         self.assertGreaterEqual(len(app.dataframe), 2)
         reviewer_input = next(

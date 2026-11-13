@@ -56,6 +56,7 @@ def record_run_metrics(
     mode: str,
     model_name: str,
     total_latency_ms: float,
+    approval_wait_ms: float = 0.0,
 ) -> None:
     """Insert or update one run's measurements without storing prompt text."""
     if not run_id or mode not in {"mock", "live"}:
@@ -66,7 +67,7 @@ def record_run_metrics(
     llm_latency_ms = float(metrics.get("llm_latency_ms", 0.0))
     if min(prompt_tokens, completion_tokens, tool_call_count) < 0:
         raise ValueError("Metric counts cannot be negative.")
-    if min(total_latency_ms, llm_latency_ms) < 0:
+    if min(total_latency_ms, approval_wait_ms, llm_latency_ms) < 0:
         raise ValueError("Metric durations cannot be negative.")
     estimated_cost = estimate_cost_usd(
         prompt_tokens, completion_tokens, model_name, mode
@@ -81,15 +82,16 @@ def record_run_metrics(
                 """
                 INSERT INTO run_metrics (
                     run_id, mode, model_name, total_latency_ms,
-                    node_latencies_json, llm_latency_ms, prompt_tokens,
+                    approval_wait_ms, node_latencies_json, llm_latency_ms, prompt_tokens,
                     completion_tokens, tool_call_count, estimated_cost_usd,
                     updated_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
                 ON CONFLICT(run_id) DO UPDATE SET
                     mode = excluded.mode,
                     model_name = excluded.model_name,
                     total_latency_ms = excluded.total_latency_ms,
+                    approval_wait_ms = excluded.approval_wait_ms,
                     node_latencies_json = excluded.node_latencies_json,
                     llm_latency_ms = excluded.llm_latency_ms,
                     prompt_tokens = excluded.prompt_tokens,
@@ -103,6 +105,7 @@ def record_run_metrics(
                     mode,
                     model_name,
                     total_latency_ms,
+                    approval_wait_ms,
                     json.dumps(node_latencies, sort_keys=True),
                     llm_latency_ms,
                     prompt_tokens,
@@ -131,7 +134,7 @@ def get_metrics_summary() -> dict[str, Any]:
             rows = connection.execute(
                 """
                 SELECT total_latency_ms, prompt_tokens, completion_tokens,
-                       estimated_cost_usd
+                       estimated_cost_usd, approval_wait_ms
                 FROM run_metrics ORDER BY total_latency_ms
                 """
             ).fetchall()
@@ -143,6 +146,9 @@ def get_metrics_summary() -> dict[str, Any]:
         "avg_latency_ms": round(sum(latencies) / len(latencies), 3) if rows else 0.0,
         "p50_latency_ms": _percentile(latencies, 0.50),
         "p95_latency_ms": _percentile(latencies, 0.95),
+        "avg_approval_wait_ms": round(
+            sum(float(row[4]) for row in rows) / len(rows), 3
+        ) if rows else 0.0,
         "total_prompt_tokens": sum(int(row[1]) for row in rows),
         "total_completion_tokens": sum(int(row[2]) for row in rows),
         "total_tokens": sum(int(row[1]) + int(row[2]) for row in rows),

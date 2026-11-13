@@ -2,10 +2,10 @@
 
 - Mode: `mock`
 - Cases: 97
-- Evaluated (UTC): 2026-11-13T04:58:29.116518Z
+- Evaluated (UTC): 2026-11-13T06:44:34.796759Z
 - Refund-policy reference date: 2026-11-13
 - Overall category accuracy: 100.0%
-- Latency p50 / p95: 20.332 / 180.732 ms
+- Latency p50 / p95: 12.304 / 71.584 ms
 - Tokens (prompt / completion / total): 0 / 0 / 0
 - Estimated cost: $0.0000000000 USD (97 priced cases)
 

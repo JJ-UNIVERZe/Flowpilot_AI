@@ -169,8 +169,7 @@ Example request (customer ID is fictional):
 Agent endpoints:
 
 - `POST /agent/run`: start an agent run; `mode` is `mock` by default or
-  `live` for an explicitly selected OpenAI request. Live API requests also
-  require `LLM_MODE=live` in the API process and `OPENAI_API_KEY`.
+  `live` for an explicitly selected OpenAI request.
 - `GET /agent/runs/{run_id}`: view the draft, tool results, validation flags,
   and metrics; requires `X-Review-API-Key`.
 - `POST /agent/runs/{run_id}/approve`: approve with `{"action":"approve"}` or
@@ -180,9 +179,8 @@ Agent endpoints:
 - `GET /metrics/summary`: aggregate run latency, token, and configured cost
   measurements; requires the reviewer key.
 
-Mock is the default and reports zero tokens and zero cost. Live API agent calls
-require both `LLM_MODE=live` and `OPENAI_API_KEY`; live CLI/evaluation calls
-require explicit mode selection and a key. Configure `OPENAI_PRICE_INPUT_PER_1M` and
+Mock is the default and reports zero tokens and zero cost. Live agent calls
+require `OPENAI_API_KEY`; configure `OPENAI_PRICE_INPUT_PER_1M` and
 `OPENAI_PRICE_OUTPUT_PER_1M` for an estimated cost. If live pricing is not
 configured, cost is reported as unavailable. `REFUND_WINDOW_DAYS`,
 `NON_REFUNDABLE_CATEGORIES`, and the optional `REFUND_AS_OF_DATE` configure

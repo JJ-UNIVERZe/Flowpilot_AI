@@ -103,6 +103,11 @@ def _select_agent_provider(mode: str):
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Live mode requires OPENAI_API_KEY.",
         )
+    if os.getenv("LLM_MODE") != "live":
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Live mode requires LLM_MODE=live.",
+        )
     if not flowpilot.get_openai_provider:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,

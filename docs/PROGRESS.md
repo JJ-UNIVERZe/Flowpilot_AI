@@ -237,3 +237,21 @@ The requested extension should therefore add isolated tool-calling and agent-run
 - Validation: `python -m unittest discover -v` — **282 passed**; `ruff check .` — passed; `python scripts/check_secrets.py` — passed; classifier CLI — **25/25 passed**. No live OpenAI request was made.
 
 **Remaining:** Phase 5 (README architecture/setup/evaluation limitations, failure-report template, final regression checks).
+
+### Phase 5 — Tests and documentation
+
+**Status: Complete**
+
+- Updated `README.md` with the LangGraph flow, setup and mock/live commands, evaluation instructions, explicitly unfilled live-result fields, and synthetic-data/mock-mode limitations.
+- Updated architecture, security, and testing documentation; added `docs/FAILURE_REPORT_TEMPLATE.md` for evidence-based failure analysis.
+- Added configurable `REFUND_AS_OF_DATE` and a pinned `FLOWPILOT_EVAL_REFERENCE_DATE` for repeatable refund-window evaluation. The evaluation runner restores the process refund-date setting after completion.
+- Gated live agent API requests on both an explicit request `mode: "live"`, `LLM_MODE=live`, and `OPENAI_API_KEY`. Added regression coverage; evaluation CLI supports explicit `--live` authorization.
+- Final validation: `coverage run -m unittest discover -v` — **283 tests passed**; coverage — **76%** (65% threshold passed); `ruff check .` — passed; `python scripts/check_secrets.py` — passed; classifier CLI — **25/25 passed**.
+- Final mock agent evaluation: **97 cases**, **100% category accuracy**, **0 reason-coded failures**, **0 prompt/completion tokens**, and **$0 mock cost**. Measured p50/p95 latency: **20.332 / 180.732 ms**. These measurements describe the deterministic mock evaluation only, not real-world model performance.
+- `git diff --check` passed. No live OpenAI request was made.
+
+**Remaining manual work:** provide `OPENAI_API_KEY` only when intentionally running a live request; authorize and run a small live evaluation; record observed failures and before/after measurements using `docs/FAILURE_REPORT_TEMPLATE.md`. Hosted CI and live-provider behavior remain unverified.
+
+## Final status
+
+Phases 1–5 of the requested agent upgrade are implemented and locally validated. Existing workflow and approval behavior remains available. The project is a synthetic-data demo, not a production support service. Live OpenAI behavior and hosted CI still require user-side verification.

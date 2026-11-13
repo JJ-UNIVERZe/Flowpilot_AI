@@ -326,6 +326,19 @@ class TestHTTPAPI(unittest.TestCase):
                 },
             )
         self.assertEqual(live.status_code, 503)
+        with mock.patch.dict(
+            os.environ, {"OPENAI_API_KEY": "demo", "LLM_MODE": "mock"}
+        ):
+            live_not_enabled = self.client.post(
+                "/agent/run",
+                json={
+                    "message": "Where is order ORD1042?",
+                    "customer_id": "CUST1001",
+                    "mode": "live",
+                },
+            )
+        self.assertEqual(live_not_enabled.status_code, 503)
+        self.assertIn("LLM_MODE=live", live_not_enabled.json()["detail"])
 
     def test_agent_run_status_requires_reviewer_authentication(self):
         created = self.client.post(

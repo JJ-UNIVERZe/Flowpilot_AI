@@ -3,7 +3,8 @@
 FlowPilot AI is a local customer-support workflow demo. It classifies a
 fictional customer message, looks up sample order/refund/payment facts, drafts
 a response, and blocks further workflow progress until a human explicitly
-approves it.
+approves it. The original deterministic workflow remains available alongside
+a tool-using LangGraph agent with an interruptible review step.
 
 It does **not** send customer messages, issue refunds, process payments, or
 change orders. Order/refund/payment lookup functions read existing facts;
@@ -71,6 +72,26 @@ The evaluator uses fictional cases and a temporary SQLite database. It never
 calls OpenAI or requests human approval. See
 [docs/EVALUATION.md](docs/EVALUATION.md) for the latest measured results.
 
+Run the LangGraph evaluation and write JSON/Markdown reports:
+
+```text
+python run_eval.py --mode mock
+python run_eval.py --mode mock --limit 10 --output reports
+```
+
+Live evaluation requires a user-provided `OPENAI_API_KEY` and explicit consent:
+
+```text
+python run_eval.py --mode live --live --limit 5
+```
+
+Without `--limit`, live mode evaluates at most five cases. Setting
+`LLM_MODE=live` also explicitly enables live evaluation; `--mode mock` always
+stays offline. Configure `FLOWPILOT_EVAL_MIN_ACCURACY` and
+`FLOWPILOT_EVAL_SLOW_THRESHOLD_MS` to change the CI accuracy gate and slow-run
+threshold. Evaluation reports are written under `reports/` and compare against
+an existing `eval_report.json` in the output directory.
+
 ## Policy lookup (RAG)
 
 General Inquiry replies can use local fictional Markdown policies in `kb/`.
@@ -114,6 +135,63 @@ approval audit table contains a category column.
 Keep both services on loopback for local demonstration. The generation API
 and n8n webhook are not a production authentication boundary.
 
+## LangGraph agent
+
+The agent reuses the established classifier and invokes only read-only order
+and refund tools. Refund lookup first verifies that the supplied fictional
+customer ID owns the order. The graph validates the draft against tool facts,
+then pauses at a LangGraph interrupt. No message is sent and no refund or
+order is changed, even after approval.
+
+```mermaid
+flowchart LR
+    A[POST /agent/run] --> B[Classify]
+    B --> C[Agent with tool calling]
+    C --> D[lookup_order / get_refund_info]
+    D --> C
+    C --> E[Validate facts, amounts, promises]
+    E --> F{Approval interrupt}
+    F -->|Edit| E
+    F -->|Approve or reject| G[Finalize and audit]
+    F -->|Pending| H[Wait for reviewer]
+```
+
+Example request (customer ID is fictional):
+
+```json
+{
+  "message": "Please check refund ORD7391.",
+  "customer_id": "CUST1007",
+  "mode": "mock"
+}
+```
+
+Agent endpoints:
+
+- `POST /agent/run`: start an agent run; `mode` is `mock` by default or
+  `live` for an explicitly selected OpenAI request. Live API requests also
+  require `LLM_MODE=live` in the API process and `OPENAI_API_KEY`.
+- `GET /agent/runs/{run_id}`: view the draft, tool results, validation flags,
+  and metrics; requires `X-Review-API-Key`.
+- `POST /agent/runs/{run_id}/approve`: approve with `{"action":"approve"}` or
+  submit an edit with `{"action":"edit","draft_reply":"..."}`. Edits are
+  revalidated and pause for review again.
+- `POST /agent/runs/{run_id}/reject`: reject; requires the reviewer key.
+- `GET /metrics/summary`: aggregate run latency, token, and configured cost
+  measurements; requires the reviewer key.
+
+Mock is the default and reports zero tokens and zero cost. Live API agent calls
+require both `LLM_MODE=live` and `OPENAI_API_KEY`; live CLI/evaluation calls
+require explicit mode selection and a key. Configure `OPENAI_PRICE_INPUT_PER_1M` and
+`OPENAI_PRICE_OUTPUT_PER_1M` for an estimated cost. If live pricing is not
+configured, cost is reported as unavailable. `REFUND_WINDOW_DAYS`,
+`NON_REFUNDABLE_CATEGORIES`, and the optional `REFUND_AS_OF_DATE` configure
+the fictional refund policy.
+
+Pending runs use LangGraph's in-memory checkpointer and the API's in-process
+run registry. A process restart loses unresolved agent runs; approved/rejected
+decisions and run metrics are stored in SQLite.
+
 ## Integrations and manual OpenAI verification
 
 - Importable, inactive n8n export: [docs/n8n-integration.md](docs/n8n-integration.md)
@@ -123,12 +201,45 @@ Live OpenAI verification is **UNVERIFIED** and requires a user-provided key.
 Automated checks never make paid OpenAI calls. Do not run the manual verifier
 unless you intentionally want to send one billable request.
 
+## Evaluation and failure analysis
+
+The generated [mock agent report](reports/eval_report.md) and its
+[JSON data](reports/eval_report.json) are measured outputs of the local
+97-case synthetic evaluation. Mock-mode category accuracy is not LLM accuracy
+or real-world accuracy. Use `run_eval.py` to regenerate the report after
+changing the agent.
+
+Real/live result fields are intentionally left for a user-run, authorized
+evaluation:
+
+- Live model and date: **[fill from an actual live run]**
+- Live cases and accuracy per category: **[fill from `reports/eval_report.json`]**
+- Live p50/p95 latency and token totals: **[fill from the report]**
+- Configured prices and estimated cost: **[fill from the report; do not infer]**
+- Failure cases, reason codes, and fixes: **[fill using
+  `docs/FAILURE_REPORT_TEMPLATE.md`]**
+
+Do not replace these placeholders with estimates or mock results.
+
+## Limitations
+
+- Every included order, customer, message, and policy is synthetic; this small
+  local dataset is not evidence of production behavior.
+- The mock provider is deterministic and offline. Its measured classification
+  score does not establish real-world model accuracy or safe behavior.
+- Fact and promise checks are defensive heuristics, not semantic proofs.
+- Pending LangGraph checkpoints and run objects are in memory and do not
+  survive a server restart.
+- The demo has no production identity system, rate limiting, encrypted database,
+  durable review queue, or capability to execute refunds or send replies.
+
 ## Developer checks
 
 ```text
 python -m unittest -v
 python flowpilot.py --classify-tests
 python scripts/evaluate.py
+python run_eval.py --mode mock
 ruff check .
 coverage run -m unittest discover -v
 coverage report --fail-under=65

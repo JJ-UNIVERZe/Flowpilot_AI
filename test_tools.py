@@ -24,6 +24,11 @@ class ToolTests(unittest.TestCase):
         self.original_path = database.DATABASE_PATH
         database.DATABASE_PATH = Path(self.directory.name) / "orders.db"
         self.addCleanup(self._restore_database)
+        self._date_patcher = mock.patch.dict(
+            os.environ, {"REFUND_AS_OF_DATE": "2026-11-13"}
+        )
+        self._date_patcher.start()
+        self.addCleanup(self._date_patcher.stop)
         database.create_database()
 
     def _restore_database(self) -> None:
@@ -71,6 +76,14 @@ class ToolTests(unittest.TestCase):
         with mock.patch.dict(os.environ, {"REFUND_WINDOW_DAYS": "bad"}):
             result = tools.get_refund_info("ORD7391")
         self.assertEqual(result["status"], "policy_error")
+
+    def test_refund_as_of_date_is_configurable_and_validated(self) -> None:
+        with mock.patch.dict(os.environ, {"REFUND_AS_OF_DATE": "2026-12-15"}):
+            expired = tools.get_refund_info("ORD7391")
+        self.assertFalse(expired["eligible"])
+        with mock.patch.dict(os.environ, {"REFUND_AS_OF_DATE": "not-a-date"}):
+            invalid = tools.get_refund_info("ORD7391")
+        self.assertEqual(invalid["status"], "policy_error")
 
     def test_every_tool_invocation_is_logged_with_arguments_and_status(self) -> None:
         tools.lookup_order("ORD1042", "CUST1001")

@@ -216,7 +216,10 @@ def get_refund_info(order_id: str) -> dict[str, Any]:
                     reason = "The order must be delivered before refund eligibility can be checked."
                 else:
                     delivered = date.fromisoformat(order["delivery_date"])
-                    elapsed_days = (date.today() - delivered).days
+                    as_of_date = date.fromisoformat(
+                        os.getenv("REFUND_AS_OF_DATE") or date.today().isoformat()
+                    )
+                    elapsed_days = (as_of_date - delivered).days
                     if elapsed_days < 0:
                         eligible = False
                         reason = "The delivery date is in the future; eligibility needs review."

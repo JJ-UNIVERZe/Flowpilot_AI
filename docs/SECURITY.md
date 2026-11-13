@@ -34,6 +34,19 @@ the review endpoint fails closed when `REVIEW_API_KEY` is unset and rejects
 missing or invalid keys. The key is sent in an HTTP header, so do not expose
 the API over an untrusted network or plaintext transport.
 
+The new `POST /agent/run` endpoint follows the existing unauthenticated
+generation pattern and accepts a caller-supplied fictional customer ID. It
+does not authenticate that ID; order tools only return details when the
+requested order matches that ID. Do not treat this ownership check as a
+production identity boundary. `GET /agent/runs/{id}`, agent approve/reject,
+and `/metrics/summary` require the reviewer key.
+
+The agent has only read-only order/refund tools. Refund details are gated by an
+order-ownership lookup, malformed or extra tool arguments are rejected, and
+tool attempts are logged in SQLite. The LLM has no operation to issue a refund,
+modify an order, or send a customer message. The reviewer gate is still
+mandatory; an approval marks the draft but does not execute an action.
+
 The Streamlit interface sends the review key only with a review request and
 does not display it. The key is a shared credential, not an individual
 reviewer identity. The audit row records message, response, decision, and
@@ -46,10 +59,20 @@ authentication, TLS, and network protections are added.
 ## Persistence and audit limitations
 
 Order/refund/payment lookups do not write existing facts. Initialization can
-create missing schema and fictional seed rows. Approval decisions are
-append-only under normal SQL operations due to SQLite triggers, but a user
-with filesystem/database access can modify the schema or database directly.
-Unreviewed API responses exist only in process memory and are lost on restart.
+create missing schema and fictional seed rows. Tool call logs, run metrics,
+and approval decisions are stored in SQLite. Metrics do not store prompt or
+draft text; approval logs do store the customer message and reviewed response.
+Approval decisions are append-only under normal SQL operations due to SQLite
+triggers, but a user with filesystem/database access can modify the schema or
+database directly. Unreviewed API and agent runs/checkpoints exist only in
+process memory and are lost on restart.
+
+Live agent/evaluation requests require an explicitly selected live mode and
+`OPENAI_API_KEY`; the agent API additionally requires `LLM_MODE=live` in its
+process environment. Evaluation accepts `--live` or `LLM_MODE=live`. The
+prompt/message may be sent to OpenAI. Mock mode makes no network requests.
+Live cost estimates are only available when both configured
+per-million-token price variables are provided; no price is assumed.
 
 No endpoint or provider can issue refunds, change orders, or process payments.
 The application has no production identity system, rate limiting, encrypted

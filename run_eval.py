@@ -9,7 +9,7 @@ import os
 import sys
 import tempfile
 import time
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -102,6 +102,13 @@ def evaluate_cases(
         raise ValueError("At least one evaluation case is required.")
     original_database_path = database.DATABASE_PATH
     provider = _provider(mode, live_authorized)
+    reference_date = os.getenv("FLOWPILOT_EVAL_REFERENCE_DATE", "2026-11-13")
+    try:
+        date.fromisoformat(reference_date)
+    except ValueError as error:
+        raise ValueError("FLOWPILOT_EVAL_REFERENCE_DATE must use YYYY-MM-DD.") from error
+    previous_as_of_date = os.environ.get("REFUND_AS_OF_DATE")
+    os.environ["REFUND_AS_OF_DATE"] = reference_date
     outputs: list[dict[str, Any]] = []
     try:
         with tempfile.TemporaryDirectory(prefix="flowpilot-agent-eval-") as directory:
@@ -174,6 +181,10 @@ def evaluate_cases(
                 )
     finally:
         database.DATABASE_PATH = original_database_path
+        if previous_as_of_date is None:
+            os.environ.pop("REFUND_AS_OF_DATE", None)
+        else:
+            os.environ["REFUND_AS_OF_DATE"] = previous_as_of_date
 
     category_stats: dict[str, dict[str, int | float]] = {}
     for item in outputs:
@@ -186,6 +197,7 @@ def evaluate_cases(
     latencies = [float(item["latency_ms"]) for item in outputs]
     return {
         "case_count": len(outputs),
+        "reference_date": reference_date,
         "accuracy": sum(
             item["expected"]["category"] == item["actual"]["category"]
             for item in outputs
@@ -232,6 +244,7 @@ def _write_report(
         f"- Mode: `{report['mode']}`",
         f"- Cases: {report['case_count']}",
         f"- Evaluated (UTC): {report['timestamp_utc']}",
+        f"- Refund-policy reference date: {report['reference_date']}",
         f"- Overall category accuracy: {report['accuracy']:.1%}",
         f"- Latency p50 / p95: {report['latency_p50_ms']:.3f} / "
         f"{report['latency_p95_ms']:.3f} ms",

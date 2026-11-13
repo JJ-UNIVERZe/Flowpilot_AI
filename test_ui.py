@@ -87,7 +87,7 @@ class TestStreamlitAPIClient(unittest.TestCase):
         with self._mock_dashboard_requests():
             app = AppTest.from_file(str(Path(ui.__file__))).run()
         self.assertFalse(app.exception)
-        self.assertEqual(len(app.selectbox), 2)
+        self.assertEqual(len(app.selectbox), 3)
 
         with self._mock_dashboard_requests():
             app.selectbox[0].select("openai").run()
@@ -104,9 +104,12 @@ class TestStreamlitAPIClient(unittest.TestCase):
         self.assertGreaterEqual(len(app.metric), 7)
         self.assertEqual(len(app.get("vega_lite_chart")), 3)
         self.assertGreaterEqual(len(app.dataframe), 2)
+        reviewer_input = next(
+            element for element in app.text_input if element.label == "Reviewer key"
+        )
         input_type = TextInput_pb2.TextInput.DESCRIPTOR.fields_by_name[
             "type"
-        ].enum_type.values_by_number[app.text_input[0].proto.type]
+        ].enum_type.values_by_number[reviewer_input.proto.type]
         self.assertEqual(input_type.name, "PASSWORD")
         self.assertTrue(
             any(

@@ -89,6 +89,21 @@ def _finish_call(
     return result
 
 
+def record_tool_rejection(
+    name: str, arguments: dict[str, Any], status: str
+) -> dict[str, Any]:
+    """Persist a rejected model tool request without dispatching it."""
+    try:
+        _record_call(name, arguments, status, time.perf_counter())
+    except database.DatabaseError:
+        return {
+            "ok": False,
+            "status": "logging_error",
+            "error": "The tool call could not be recorded.",
+        }
+    return {"ok": False, "status": status, "error": "Tool request was rejected."}
+
+
 def lookup_order(order_id: str, customer_id: str) -> dict[str, Any]:
     """Return order facts only when the order belongs to ``customer_id``."""
     started = time.perf_counter()
@@ -235,20 +250,45 @@ def get_refund_info(order_id: str) -> dict[str, Any]:
 
 def execute_tool_call(name: str, arguments_json: str) -> dict[str, Any]:
     """Parse and strictly validate OpenAI tool arguments before dispatch."""
+    started = time.perf_counter()
     try:
         arguments = json.loads(arguments_json)
     except (TypeError, json.JSONDecodeError):
-        return {"ok": False, "status": "invalid_arguments", "error": "Arguments must be valid JSON."}
+        return _finish_call(
+            name,
+            {"raw_arguments": str(arguments_json)[:1000]},
+            {"ok": False, "status": "invalid_arguments", "error": "Arguments must be valid JSON."},
+            started,
+        )
     if not isinstance(arguments, dict):
-        return {"ok": False, "status": "invalid_arguments", "error": "Arguments must be a JSON object."}
+        return _finish_call(
+            name,
+            {"raw_arguments": str(arguments_json)[:1000]},
+            {"ok": False, "status": "invalid_arguments", "error": "Arguments must be a JSON object."},
+            started,
+        )
     allowed = {
         "lookup_order": {"order_id", "customer_id"},
         "get_refund_info": {"order_id"},
     }
     if name not in allowed:
-        return {"ok": False, "status": "unknown_tool", "error": "Tool is not available."}
+        return _finish_call(
+            name,
+            arguments,
+            {"ok": False, "status": "unknown_tool", "error": "Tool is not available."},
+            started,
+        )
     if set(arguments) != allowed[name]:
-        return {"ok": False, "status": "invalid_arguments", "error": "Unexpected or missing tool arguments."}
+        return _finish_call(
+            name,
+            arguments,
+            {
+                "ok": False,
+                "status": "invalid_arguments",
+                "error": "Unexpected or missing tool arguments.",
+            },
+            started,
+        )
     if name == "lookup_order":
         return lookup_order(arguments["order_id"], arguments["customer_id"])
     return get_refund_info(arguments["order_id"])

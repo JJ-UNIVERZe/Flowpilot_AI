@@ -202,3 +202,15 @@ The requested extension should therefore add isolated tool-calling and agent-run
 - Validation: `python -m unittest discover -v` — **262 passed**; `ruff check .` — passed; `python scripts/check_secrets.py` — passed.
 
 **Remaining:** Phases 2–5 (LangGraph and reviewer approval, run metrics, automated agent evaluation, API/UI integration, and documentation).
+
+### Phase 2 — LangGraph workflow and human approval
+
+**Status: Complete**
+
+- Added typed `agent_graph.py`: reuses the established classifier, enables bounded LLM tool calls, requires an ownership lookup before refund details, validates order facts/amounts/promises, and uses a safe fallback on unsupported drafts.
+- Added a LangGraph `interrupt` approval checkpoint with in-memory checkpointing, editable drafts that are revalidated, and explicit approve/reject outcomes. No customer message is sent and no order/refund data is mutated.
+- Added key-protected agent-run retrieval and approve/reject endpoints while preserving the original API routes. Review decisions are written through the existing immutable approval audit.
+- Added a Streamlit Agent Review tab for the draft, tool results, validation flags, metrics, and approve/edit/reject actions. Live calls require explicit selection and a configured OpenAI key; mock is default.
+- Validation: `python -m unittest discover -v` — **272 passed**; `ruff check .` — passed; `python scripts/check_secrets.py` — passed. No live OpenAI request was made.
+
+**Remaining:** Phases 3–5 (persisted metrics and summary, expanded automated evaluation/CI threshold, final tests and documentation).

@@ -91,6 +91,55 @@ def _review(response_id: str, decision: str, reviewer_key: str) -> None:
     st.session_state["workflow_response"] = response
 
 
+def _run_agent(message: str, customer_id: str, mode: str) -> None:
+    try:
+        response = _request_api(
+            "POST",
+            "/agent/run",
+            {"message": message, "customer_id": customer_id, "mode": mode},
+        )
+    except APIRequestError as error:
+        st.error(str(error))
+        return
+    st.session_state["agent_run_response"] = response
+
+
+def _get_agent_run(run_id: str, reviewer_key: str) -> None:
+    try:
+        response = _request_api(
+            "GET",
+            f"/agent/runs/{run_id}",
+            headers={"X-Review-API-Key": reviewer_key},
+        )
+    except APIRequestError as error:
+        st.error(str(error))
+        return
+    st.session_state["agent_run_response"] = response
+
+
+def _review_agent_run(
+    run_id: str, reviewer_key: str, action: str, draft_reply: str | None = None
+) -> None:
+    try:
+        if action == "reject":
+            response = _request_api(
+                "POST",
+                f"/agent/runs/{run_id}/reject",
+                headers={"X-Review-API-Key": reviewer_key},
+            )
+        else:
+            response = _request_api(
+                "POST",
+                f"/agent/runs/{run_id}/approve",
+                {"action": action, "draft_reply": draft_reply},
+                {"X-Review-API-Key": reviewer_key},
+            )
+    except APIRequestError as error:
+        st.error(str(error))
+        return
+    st.session_state["agent_run_response"] = response
+
+
 def _render_evaluation(evaluation: dict[str, Any]) -> None:
     metrics = evaluation.get("metrics")
     if not isinstance(metrics, dict):
@@ -278,8 +327,8 @@ def main() -> None:
         st.caption(f"API: {API_BASE_URL}")
         reviewer_key = st.text_input("Reviewer key", type="password")
 
-    workflow_tab, evaluation_tab, review_stats_tab = st.tabs(
-        ["Workflow", "Evaluation", "Review stats"]
+    workflow_tab, agent_tab, evaluation_tab, review_stats_tab = st.tabs(
+        ["Workflow", "Agent review", "Evaluation", "Review stats"]
     )
     with workflow_tab:
         mode = st.selectbox("Response mode", ("template", "mock", "openai"))
@@ -336,6 +385,66 @@ def main() -> None:
                         st.error("A reviewer key is required.")
                     else:
                         _review(response_id, "Rejected", reviewer_key)
+
+    with agent_tab:
+        st.subheader("LangGraph agent")
+        customer_id = st.text_input("Fictional customer ID", value="CUST1001")
+        agent_message = st.text_area(
+            "Agent customer message", max_chars=4000, key="agent_message"
+        )
+        agent_mode = st.selectbox("Agent mode", ("mock", "live"), key="agent_mode")
+        live_confirmed = False
+        if agent_mode == "live":
+            live_confirmed = st.checkbox(
+                "I understand live agent mode may send a billable request."
+            )
+        if st.button(
+            "Run agent",
+            disabled=(agent_mode == "live" and not live_confirmed),
+        ):
+            if not agent_message.strip():
+                st.error("Enter a customer message first.")
+            elif not reviewer_key:
+                st.error("A reviewer key is required to review agent runs.")
+            else:
+                _run_agent(agent_message, customer_id, agent_mode)
+
+        agent_run = st.session_state.get("agent_run_response")
+        if isinstance(agent_run, dict):
+            run_id = agent_run.get("run_id")
+            st.write(f"Run status: **{agent_run.get('status', 'unknown')}**")
+            st.write(f"Approval status: **{agent_run.get('approval_status', 'Pending')}**")
+            st.write(f"Category: {agent_run.get('category', 'Unknown')}")
+            st.write(f"Confidence: {agent_run.get('confidence', 0.0):.2f}")
+            st.subheader("Draft reply")
+            draft_reply = st.text_area(
+                "Draft for reviewer",
+                value=agent_run.get("draft_reply", ""),
+                key=f"agent_draft_{run_id}",
+                disabled=agent_run.get("status") != "awaiting_approval",
+            )
+            flags = agent_run.get("validation_flags", [])
+            if flags:
+                st.warning("Validation flags: " + ", ".join(str(flag) for flag in flags))
+            with st.expander("Tool calls and results"):
+                st.json(agent_run.get("tool_results", []))
+            with st.expander("Run metrics and errors"):
+                st.json(
+                    {
+                        "metrics": agent_run.get("metrics", {}),
+                        "errors": agent_run.get("errors", []),
+                    }
+                )
+            if agent_run.get("status") == "awaiting_approval" and run_id:
+                refresh_col, approve_col, edit_col, reject_col = st.columns(4)
+                if refresh_col.button("Refresh run"):
+                    _get_agent_run(run_id, reviewer_key)
+                if approve_col.button("Approve draft"):
+                    _review_agent_run(run_id, reviewer_key, "approve")
+                if edit_col.button("Submit edit"):
+                    _review_agent_run(run_id, reviewer_key, "edit", draft_reply)
+                if reject_col.button("Reject draft"):
+                    _review_agent_run(run_id, reviewer_key, "reject")
 
     dashboard_headers = {"X-Review-API-Key": reviewer_key}
     with evaluation_tab:

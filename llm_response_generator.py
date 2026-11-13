@@ -151,6 +151,59 @@ class MockLLM(LLMProvider):
                 "content": response.get("content"),
                 "tool_calls": response.get("tool_calls", []),
             }
+        user_content = "\n".join(
+            str(message.get("content", ""))
+            for message in messages
+            if message.get("role") == "user"
+        )
+        category_match = re.search(
+            r"(?m)^- Request category: (Delivery Issue|Refund Inquiry|Payment Issue)$",
+            user_content,
+        )
+        order_match = re.search(r"(?m)^- Order ID: (ORD\d{4})$", user_content)
+        customer_match = re.search(r"(?m)^- Customer ID: (CUST\d{4})$", user_content)
+        category = category_match.group(1) if category_match else None
+        order_id = order_match.group(1) if order_match else None
+        customer_id = customer_match.group(1) if customer_match else None
+        tool_messages = [
+            message for message in messages if message.get("role") == "tool"
+        ]
+        completed_tools = {message.get("name") for message in tool_messages}
+        successful_lookup = False
+        for message in tool_messages:
+            if message.get("name") != "lookup_order":
+                continue
+            try:
+                successful_lookup = json.loads(str(message.get("content", ""))).get(
+                    "status"
+                ) == "found"
+            except (json.JSONDecodeError, AttributeError):
+                successful_lookup = False
+        next_tool: str | None = None
+        if category and order_id and customer_id:
+            if "lookup_order" not in completed_tools:
+                next_tool = "lookup_order"
+            elif category == "Refund Inquiry" and successful_lookup and (
+                "get_refund_info" not in completed_tools
+            ):
+                next_tool = "get_refund_info"
+        if next_tool is not None:
+            arguments = {"order_id": order_id}
+            if next_tool == "lookup_order":
+                arguments["customer_id"] = customer_id
+            return {
+                "content": None,
+                "tool_calls": [
+                    {
+                        "id": f"mock-{next_tool}",
+                        "type": "function",
+                        "function": {
+                            "name": next_tool,
+                            "arguments": json.dumps(arguments),
+                        },
+                    }
+                ],
+            }
         content = self.generate_messages(
             [{"role": str(message["role"]), "content": str(message.get("content", ""))}
              for message in messages]

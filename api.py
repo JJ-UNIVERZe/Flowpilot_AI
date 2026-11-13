@@ -12,8 +12,10 @@ from uuid import uuid4
 
 from fastapi import FastAPI, Header, HTTPException, Query, status
 from pydantic import BaseModel, Field
+from langgraph.types import Command
 
 import approval
+import agent_graph
 import database
 import flowpilot
 import knowledge_base
@@ -32,6 +34,21 @@ class WorkflowRequest(BaseModel):
 
 class ReviewRequest(BaseModel):
     decision: Literal["Approved", "Rejected"]
+
+
+class AgentRunRequest(BaseModel):
+    message: str = Field(min_length=1, max_length=4000)
+    customer_id: str = Field(pattern=r"^CUST[0-9]{4}$")
+    mode: Literal["mock", "live"] = "mock"
+
+
+class AgentApprovalRequest(BaseModel):
+    action: Literal["approve", "edit"] = "approve"
+    draft_reply: str | None = Field(default=None, max_length=4000)
+
+
+agent_runs: dict[str, dict[str, Any]] = {}
+_agent_runs_lock = RLock()
 
 
 def _select_provider(mode: str):
@@ -59,6 +76,100 @@ def _select_provider(mode: str):
     })
 
 
+def _select_agent_provider(mode: str):
+    if mode == "mock":
+        from llm_response_generator import MockLLM
+
+        response = "I can help with your request. A human reviewer will verify any decision."
+        return MockLLM(
+            {
+                category: response
+                for category in (
+                    "Delivery Issue",
+                    "Refund Inquiry",
+                    "Payment Issue",
+                    "General Inquiry",
+                    "Damaged Item",
+                    "Cancellation",
+                    "Address Change",
+                    "Unknown Request",
+                )
+            }
+        )
+    if not os.getenv("OPENAI_API_KEY"):
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Live mode requires OPENAI_API_KEY.",
+        )
+    if not flowpilot.get_openai_provider:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="The OpenAI provider is unavailable.",
+        )
+    provider = flowpilot.get_openai_provider()
+    if provider is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="The OpenAI provider is unavailable.",
+        )
+    return provider
+
+
+def _agent_run_payload(run_id: str, state: dict[str, Any]) -> dict[str, Any]:
+    interrupts = state.get("__interrupt__", ())
+    interrupt_value = interrupts[0].value if interrupts else None
+    status_text = "awaiting_approval" if interrupts else state.get("status", "running")
+    return {
+        "run_id": run_id,
+        "status": status_text,
+        "category": state.get("category"),
+        "draft_reply": state.get("draft_reply", ""),
+        "tool_results": state.get("tool_results", []),
+        "validation_flags": state.get("validation_flags", []),
+        "confidence": state.get("confidence", 0.0),
+        "approval_status": state.get("approval_status", "Pending"),
+        "can_proceed": state.get("can_proceed", False),
+        "metrics": state.get("metrics", {}),
+        "errors": state.get("errors", []),
+        "interrupt": interrupt_value,
+    }
+
+
+def _resume_agent_run(
+    run_id: str, run: dict[str, Any], decision: str, draft_reply: str | None = None
+) -> dict[str, Any]:
+    state = run["state"]
+    if not state.get("__interrupt__"):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Agent run is not waiting for a reviewer decision.",
+        )
+    if decision in {"approve", "reject"}:
+        try:
+            approval.record_approval(
+                response=state.get("draft_reply", ""),
+                decision="Approved" if decision == "approve" else "Rejected",
+                customer_message=state.get("message", ""),
+            )
+        except database.DatabaseError as error:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=database.DATABASE_UNAVAILABLE_TEXT,
+            ) from error
+    config = {"configurable": {"thread_id": run_id}}
+    resumed = run["graph"].invoke(
+        Command(
+            resume={
+                "decision": decision,
+                "draft_reply": draft_reply,
+            }
+        ),
+        config=config,
+    )
+    run["state"] = resumed
+    return _agent_run_payload(run_id, resumed)
+
+
 def _require_reviewer_key(supplied_key: str | None) -> None:
     expected_key = os.getenv("REVIEW_API_KEY", "")
     if not expected_key:
@@ -76,6 +187,72 @@ def _require_reviewer_key(supplied_key: str | None) -> None:
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.post("/agent/run", status_code=status.HTTP_201_CREATED)
+def run_agent(request: AgentRunRequest) -> dict[str, Any]:
+    """Run the tool-using LangGraph agent and pause for human approval."""
+    provider = _select_agent_provider(request.mode)
+    run_id = uuid4().hex
+    graph = agent_graph.build_agent_graph(provider)
+    config = {"configurable": {"thread_id": run_id}}
+    state = graph.invoke(
+        agent_graph.initial_state(request.message, request.customer_id, run_id),
+        config=config,
+    )
+    with _agent_runs_lock:
+        agent_runs[run_id] = {"graph": graph, "state": state, "mode": request.mode}
+    return _agent_run_payload(run_id, state)
+
+
+@app.get("/agent/runs/{run_id}")
+def get_agent_run(
+    run_id: str,
+    x_review_api_key: str | None = Header(default=None, alias="X-Review-API-Key"),
+) -> dict[str, Any]:
+    """Return a run's draft and tool facts to an authenticated reviewer."""
+    _require_reviewer_key(x_review_api_key)
+    with _agent_runs_lock:
+        run = agent_runs.get(run_id)
+        if run is None:
+            raise HTTPException(status_code=404, detail="Agent run was not found.")
+        return _agent_run_payload(run_id, run["state"])
+
+
+@app.post("/agent/runs/{run_id}/approve")
+def approve_agent_run(
+    run_id: str,
+    request: AgentApprovalRequest,
+    x_review_api_key: str | None = Header(default=None, alias="X-Review-API-Key"),
+) -> dict[str, Any]:
+    """Approve a draft or submit an edited draft for revalidation."""
+    _require_reviewer_key(x_review_api_key)
+    if request.action == "edit" and not request.draft_reply:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="An edited draft is required for the edit action.",
+        )
+    with _agent_runs_lock:
+        run = agent_runs.get(run_id)
+        if run is None:
+            raise HTTPException(status_code=404, detail="Agent run was not found.")
+        return _resume_agent_run(
+            run_id, run, request.action, request.draft_reply
+        )
+
+
+@app.post("/agent/runs/{run_id}/reject")
+def reject_agent_run(
+    run_id: str,
+    x_review_api_key: str | None = Header(default=None, alias="X-Review-API-Key"),
+) -> dict[str, Any]:
+    """Reject a draft and persist the reviewer decision."""
+    _require_reviewer_key(x_review_api_key)
+    with _agent_runs_lock:
+        run = agent_runs.get(run_id)
+        if run is None:
+            raise HTTPException(status_code=404, detail="Agent run was not found.")
+        return _resume_agent_run(run_id, run, "reject")
 
 
 @app.get("/kb/search")

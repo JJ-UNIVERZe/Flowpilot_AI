@@ -31,6 +31,8 @@ class TestHTTPAPI(unittest.TestCase):
         self.addCleanup(self._review_key_patcher.stop)
         with api._pending_lock:
             api.pending_responses.clear()
+        with api._agent_runs_lock:
+            api.agent_runs.clear()
         self.client = TestClient(api.app)
 
     def _restore_database_path(self):
@@ -286,3 +288,94 @@ class TestHTTPAPI(unittest.TestCase):
         self.assertEqual(response.status_code, 201)
         self.assertTrue(response.json()["result"]["customer_response"])
         self.assertFalse(response.json()["result"]["can_proceed"])
+
+    def test_agent_run_uses_mock_tool_call_and_stops_at_approval(self):
+        response = self.client.post(
+            "/agent/run",
+            json={
+                "message": "Where is my order ORD1042?",
+                "customer_id": "CUST1001",
+            },
+        )
+        self.assertEqual(response.status_code, 201)
+        run = response.json()
+        self.assertEqual(run["status"], "awaiting_approval")
+        self.assertEqual(run["approval_status"], "Pending")
+        self.assertFalse(run["can_proceed"])
+        self.assertEqual(run["tool_results"][0]["result"]["status"], "found")
+
+    def test_agent_run_requires_customer_id_and_live_key(self):
+        missing_customer = self.client.post(
+            "/agent/run", json={"message": "Where is order ORD1042?"}
+        )
+        self.assertEqual(missing_customer.status_code, 422)
+        with mock.patch.dict(os.environ, {"OPENAI_API_KEY": ""}):
+            live = self.client.post(
+                "/agent/run",
+                json={
+                    "message": "Where is order ORD1042?",
+                    "customer_id": "CUST1001",
+                    "mode": "live",
+                },
+            )
+        self.assertEqual(live.status_code, 503)
+
+    def test_agent_run_status_requires_reviewer_authentication(self):
+        created = self.client.post(
+            "/agent/run",
+            json={"message": "Hello", "customer_id": "CUST1001"},
+        ).json()
+        response = self.client.get(f"/agent/runs/{created['run_id']}")
+        self.assertEqual(response.status_code, 401)
+
+    def test_agent_edit_revalidates_then_reject_is_audited(self):
+        created = self.client.post(
+            "/agent/run",
+            json={"message": "Hello", "customer_id": "CUST1001"},
+        ).json()
+        run_id = created["run_id"]
+        headers = {"X-Review-API-Key": "test-review-key"}
+        invalid_edit = self.client.post(
+            f"/agent/runs/{run_id}/approve",
+            json={"action": "edit"},
+            headers=headers,
+        )
+        self.assertEqual(invalid_edit.status_code, 422)
+        edit = self.client.post(
+            f"/agent/runs/{run_id}/approve",
+            json={"action": "edit", "draft_reply": "Thanks for reaching out."},
+            headers=headers,
+        )
+        self.assertEqual(edit.status_code, 200)
+        self.assertEqual(edit.json()["status"], "awaiting_approval")
+        rejected = self.client.post(
+            f"/agent/runs/{run_id}/reject", headers=headers
+        )
+        self.assertEqual(rejected.status_code, 200)
+        self.assertEqual(rejected.json()["approval_status"], "Rejected")
+        self.assertFalse(rejected.json()["can_proceed"])
+        with closing(sqlite3.connect(database.DATABASE_PATH)) as connection:
+            decisions = connection.execute(
+                "SELECT approval_status FROM approval_logs"
+            ).fetchall()
+        self.assertEqual(decisions, [("Rejected",)])
+
+    def test_agent_approval_requires_reviewer_key_and_is_audited(self):
+        created = self.client.post(
+            "/agent/run",
+            json={"message": "Hello", "customer_id": "CUST1001"},
+        ).json()
+        run_id = created["run_id"]
+        denied = self.client.post(
+            f"/agent/runs/{run_id}/approve",
+            json={"action": "approve"},
+        )
+        self.assertEqual(denied.status_code, 401)
+        approved = self.client.post(
+            f"/agent/runs/{run_id}/approve",
+            json={"action": "approve"},
+            headers={"X-Review-API-Key": "test-review-key"},
+        )
+        self.assertEqual(approved.status_code, 200)
+        self.assertEqual(approved.json()["approval_status"], "Approved")
+        self.assertTrue(approved.json()["can_proceed"])

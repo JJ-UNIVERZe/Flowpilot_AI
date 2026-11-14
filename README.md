@@ -1,4 +1,4 @@
-..# FlowPilot AI
+# FlowPilot AI
 
 FlowPilot AI is a local customer-support workflow demo. It classifies a
 fictional customer message, looks up sample order/refund/payment facts, drafts

@@ -199,26 +199,6 @@ Live OpenAI verification is **UNVERIFIED** and requires a user-provided key.
 Automated checks never make paid OpenAI calls. Do not run the manual verifier
 unless you intentionally want to send one billable request.
 
-## Evaluation and failure analysis
-
-The generated [mock agent report](reports/eval_report.md) and its
-[JSON data](reports/eval_report.json) are measured outputs of the local
-97-case synthetic evaluation. Mock-mode category accuracy is not LLM accuracy
-or real-world accuracy. Use `run_eval.py` to regenerate the report after
-changing the agent.
-
-Real/live result fields are intentionally left for a user-run, authorized
-evaluation:
-
-- Live model and date: **[fill from an actual live run]**
-- Live cases and accuracy per category: **[fill from `reports/eval_report.json`]**
-- Live p50/p95 latency and token totals: **[fill from the report]**
-- Configured prices and estimated cost: **[fill from the report; do not infer]**
-- Failure cases, reason codes, and fixes: **[fill using
-  `docs/FAILURE_REPORT_TEMPLATE.md`]**
-
-Do not replace these placeholders with estimates or mock results.
-
 ## Limitations
 
 - Every included order, customer, message, and policy is synthetic; this small
